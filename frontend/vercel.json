@@ -6,6 +6,10 @@
       "destination": "https://yaqana-men-s-fashion-development.onrender.com/api/:path*"
     },
     {
+      "source": "/uploads/:path*",
+      "destination": "https://yaqana-men-s-fashion-development.onrender.com/uploads/:path*"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }

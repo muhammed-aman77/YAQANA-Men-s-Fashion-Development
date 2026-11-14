@@ -141,10 +141,16 @@ export default function AdminDashboardPage() {
     const input = event.currentTarget;
     const file = input.files?.[0];
     if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      showNotice('Product images must be 5 MB or smaller.', 'error');
+      input.value = '';
+      return;
+    }
 
     const formData = new FormData();
     formData.append('image', file);
     setUploadingImage(true);
+    showNotice('Uploading product image...');
     try {
       const res = await uploadService.uploadImage(formData);
       if (!res.data.success || typeof res.data.imageUrl !== 'string' || !res.data.imageUrl) {
@@ -588,7 +594,7 @@ export default function AdminDashboardPage() {
                   <label className="flex items-center gap-2"><input type="checkbox" name="bestSeller" checked={productForm.bestSeller} onChange={handleChange} /> Best</label>
                   <label className="flex items-center gap-2"><input type="checkbox" name="active" checked={productForm.active} onChange={handleChange} /> Active</label>
                 </div>
-                <button type="submit" className="btn-luxury w-full py-3 text-[10px] flex items-center justify-center gap-2">
+                <button type="submit" disabled={uploadingImage} className="btn-luxury w-full py-3 text-[10px] flex items-center justify-center gap-2 disabled:cursor-wait disabled:opacity-60">
                   {editingId ? <PenSquare className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
                   {editingId ? 'Save Changes' : 'Add Product'}
                 </button>
