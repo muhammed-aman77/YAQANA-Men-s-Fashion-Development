@@ -9,10 +9,10 @@ import { buildEffectivePriceFilter } from '../utils/effectivePriceFilter.js';
 const escapeRegex = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const isAdmin = (req) => req.user?.role === 'admin';
 const requiredCategorySlugs = new Set(['t-shirts', 'hoodies', 'shirts', 'trousers']);
-const parseList = (value, label, max = 30) => {
+const parseList = (value, label, max = 30, maxItemLength = 100) => {
   if (value == null || value === '') return [];
   const list = typeof value === 'string' ? value.split(',') : value;
-  if (!Array.isArray(list) || list.length > max || list.some((v) => typeof v !== 'string' || !v.trim() || v.length > 100)) throw httpError(400, `${label} must be a valid list.`);
+  if (!Array.isArray(list) || list.length > max || list.some((v) => typeof v !== 'string' || !v.trim() || v.length > maxItemLength)) throw httpError(400, `${label} must be a valid list.`);
   return [...new Set(list.map((v) => v.trim()))];
 };
 const parseMoneyPaise = (value, label, optional = false) => {
@@ -22,7 +22,7 @@ const parseMoneyPaise = (value, label, optional = false) => {
   return catalogUnitsToPaise(number);
 };
 const parseImages = (value) => {
-  const images = parseList(value, 'Images', 30);
+  const images = parseList(value, 'Images', 30, 2048);
   if (!images.length || images.some((url) => url.length > 2048 || !(url.startsWith('https://') || url.startsWith('http://') || url.startsWith('/uploads/') || url.startsWith('/images/')))) throw httpError(400, 'Provide at least one valid product image URL.');
   return images;
 };
