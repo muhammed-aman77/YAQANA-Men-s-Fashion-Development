@@ -3,6 +3,11 @@ import { z } from 'zod';
 
 dotenv.config();
 
+const optionalCredential = z.preprocess(
+  (value) => typeof value === 'string' && !value.trim() ? undefined : value,
+  z.string().trim().min(1).optional()
+);
+
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().min(1).max(65535).default(5000),
@@ -15,13 +20,29 @@ const schema = z.object({
   LEGACY_TAX_RATE: z.coerce.number().min(0).max(1).default(0.08),
   FRONTEND_ORIGINS: z.string().default('http://localhost:3000'),
   TRUST_PROXY: z.enum(['true', 'false']).default('false'),
-  LOG_LEVEL: z.string().default('info')
+  LOG_LEVEL: z.string().default('info'),
+  CLOUDINARY_CLOUD_NAME: optionalCredential,
+  CLOUDINARY_API_KEY: optionalCredential,
+  CLOUDINARY_API_SECRET: optionalCredential
 });
 
 const parsed = schema.safeParse(process.env);
 if (!parsed.success) {
   const details = parsed.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('; ');
   throw new Error(`Invalid environment configuration: ${details}`);
+}
+
+const cloudinaryCredentials = [
+  parsed.data.CLOUDINARY_CLOUD_NAME,
+  parsed.data.CLOUDINARY_API_KEY,
+  parsed.data.CLOUDINARY_API_SECRET
+];
+const configuredCloudinaryCredentials = cloudinaryCredentials.filter(Boolean).length;
+if (configuredCloudinaryCredentials !== 0 && configuredCloudinaryCredentials !== cloudinaryCredentials.length) {
+  throw new Error('Set all three Cloudinary credentials or leave all three unset.');
+}
+if (parsed.data.NODE_ENV === 'production' && configuredCloudinaryCredentials !== cloudinaryCredentials.length) {
+  throw new Error('All three Cloudinary credentials are required in production.');
 }
 
 const origins = parsed.data.FRONTEND_ORIGINS.split(',').map((value) => value.trim()).filter(Boolean);
@@ -34,4 +55,8 @@ for (const origin of origins) {
   }
 }
 
-export const env = Object.freeze({ ...parsed.data, allowedOrigins: origins });
+export const env = Object.freeze({
+  ...parsed.data,
+  cloudinaryConfigured: configuredCloudinaryCredentials === cloudinaryCredentials.length,
+  allowedOrigins: origins
+});

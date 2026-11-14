@@ -54,6 +54,12 @@ This is an actively developing backend, not yet a production-ready release.
 
 The frontend defaults to the relative `/api` path. Its Vite development server proxies `/api` and `/uploads` to `http://localhost:5000`. Set `VITE_API_BASE_URL` to the backend API base (for example, `https://<backend-origin>/api`) for a future deployment; keep `/api` for local development.
 
+### Product image uploads
+
+Product images are uploaded server-to-server to Cloudinary and returned as HTTPS URLs. To enable uploads locally, set `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, and `CLOUDINARY_API_SECRET` in your untracked `.env` file. `.env.example` lists the variable names without credentials. Set all three values together; local development can run without them, but the upload endpoint returns a configuration error. Production requires all three.
+
+Keep the API secret on the backend only. Never put Cloudinary credentials in frontend environment variables or commit them to the repository. Existing `/uploads/*` product references are left unchanged and are still served from the legacy local directory when those files exist; new uploads do not write to local disk.
+
 ## Development-only dummy catalogue
 
 The approved 24-product development sample catalogue is stored in `data/dev-products.json`. Its products use `dev-dummy-` slugs, local photos, integer paise prices, and the three `DEV SAMPLE` collections. Image source pages, contributor credits, Pexels License references, retrieval dates, and SHA-256 hashes are recorded in `frontend/public/images/dev-products/manifest.json`.
@@ -111,4 +117,4 @@ See `FRONTEND_COMPATIBILITY.md` for the audited endpoint contract and known conf
 
 ## Security and operations
 
-Never commit `.env`, payment credentials or customer data. Do not connect live gateway credentials until merchant onboarding, gateway selection, signed webhooks, idempotency and reconciliation have been reviewed and tested. Do not deploy local-disk uploads as durable production media storage.
+Never commit `.env`, Cloudinary or payment credentials, or customer data. Do not connect live gateway credentials until merchant onboarding, gateway selection, signed webhooks, idempotency and reconciliation have been reviewed and tested.
