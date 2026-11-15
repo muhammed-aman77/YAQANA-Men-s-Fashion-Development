@@ -18,7 +18,7 @@ const paymentOptions = [
 const CHECKOUT_ATTEMPT_STORAGE_KEY = 'xora_checkout_attempt';
 
 export default function CheckoutPage() {
-  const { items, subtotal, shippingFee, estimatedTax, grandTotal, clearCart } = useCart();
+  const { items, subtotal, shippingFee, estimatedTax, grandTotal, clearCart, loading: cartLoading } = useCart();
   const { user, isAuthenticated } = useAuth();
   const navigate = useNavigate();
 
@@ -103,6 +103,8 @@ export default function CheckoutPage() {
       navigate(`/login?redirect=${encodeURIComponent('/checkout')}`);
       return;
     }
+
+    if (cartLoading) return;
 
     if (!shippingAddress.fullName || !shippingAddress.addressLine1 || !shippingAddress.city || !shippingAddress.postalCode) {
       setError('Please provide all required shipping fields.');
@@ -480,7 +482,7 @@ export default function CheckoutPage() {
                 {/* Submit button */}
                 <button
                   type="submit"
-                  disabled={loading}
+                  disabled={loading || cartLoading}
                   className="btn-luxury w-full py-4 text-xs flex items-center justify-center space-x-2"
                   id="place-order-btn"
                 >

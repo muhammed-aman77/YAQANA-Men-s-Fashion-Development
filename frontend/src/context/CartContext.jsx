@@ -23,7 +23,7 @@ const formatCartItems = (items = []) => items
   }));
 
 export const CartProvider = ({ children }) => {
-  const { isAuthenticated, loading: authLoading } = useAuth();
+  const { user, isAuthenticated, loading: authLoading } = useAuth();
   const [items, setItems] = useState(() => {
     try {
       const saved = localStorage.getItem('xora_local_cart');
@@ -34,6 +34,7 @@ export const CartProvider = ({ children }) => {
   });
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [cartOwner, setCartOwner] = useState(null);
 
   // When user logs in, fetch backend cart and sync
   useEffect(() => {
@@ -43,8 +44,13 @@ export const CartProvider = ({ children }) => {
       loadBackendCart();
     } else {
       setItems((currentItems) => currentItems.filter((item) => String(item._id).startsWith('temp-')));
+      setCartOwner('guest');
     }
-  }, [isAuthenticated, authLoading]);
+  }, [isAuthenticated, authLoading, user?._id]);
+
+  const cartLoading = loading || authLoading || (
+    isAuthenticated ? cartOwner !== String(user?._id) : cartOwner !== 'guest'
+  );
 
   // Persist guest cart locally
   useEffect(() => {
@@ -82,6 +88,7 @@ export const CartProvider = ({ children }) => {
       console.warn('Failed to fetch user cart from backend:', err);
     } finally {
       setLoading(false);
+      setCartOwner(String(user?._id));
     }
   };
 
@@ -221,7 +228,7 @@ export const CartProvider = ({ children }) => {
         updateQuantity,
         removeFromCart,
         clearCart,
-        loading,
+        loading: cartLoading,
         totalCount,
         subtotal,
         shippingFee,

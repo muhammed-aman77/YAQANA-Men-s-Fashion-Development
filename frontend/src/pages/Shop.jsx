@@ -7,6 +7,8 @@ import EmptyState from '../components/EmptyState';
 import { productService } from '../services/api';
 import { buildShopProductParams, SHOP_CATEGORIES } from '../utils/shopFilters';
 
+const isDevelopmentSampleCollection = (name) => /^DEV[\s_-]*SAMPLE\b/i.test(String(name || '').trim());
+
 export default function Shop({ initialGender = 'men', pageTitle = "Men's Collection" }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const [products, setProducts] = useState([]);
@@ -33,7 +35,7 @@ export default function Shop({ initialGender = 'men', pageTitle = "Men's Collect
   const [priceError, setPriceError] = useState('');
 
   const selectedCategory = categoryParam;
-  const selectedCollection = collectionParam;
+  const selectedCollection = isDevelopmentSampleCollection(collectionParam) ? '' : collectionParam;
   const selectedSize = sizeParam;
   const selectedColour = colourParam;
   const sort = sortParam;
@@ -76,7 +78,9 @@ export default function Shop({ initialGender = 'men', pageTitle = "Men's Collect
 
   // Fetch collections once
   useEffect(() => {
-    productService.getCollections().then((res) => setCollections(res.data.collections || [])).catch(() => {});
+    productService.getCollections().then((res) => {
+      setCollections((res.data.collections || []).filter((name) => !isDevelopmentSampleCollection(name)));
+    }).catch(() => {});
   }, []);
 
   // Fetch products whenever filters change
@@ -109,7 +113,7 @@ export default function Shop({ initialGender = 'men', pageTitle = "Men's Collect
         setTotalCount(res.data.totalCount ?? res.data.products.length);
         setCollections((current) => current.length ? current : Array.from(new Set(
           res.data.products.map((product) => product.collectionName).filter(Boolean)
-        )).sort((a, b) => a.localeCompare(b)));
+        )).filter((name) => !isDevelopmentSampleCollection(name)).sort((a, b) => a.localeCompare(b)));
 
         // Build the available sizes list from all products in the current view
         setAvailableSizes((current) => {
