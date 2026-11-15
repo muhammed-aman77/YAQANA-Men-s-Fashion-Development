@@ -64,6 +64,12 @@ npm test
 
 They require an existing active local admin and remove only the temporary records created by each test.
 
+### Product image uploads
+
+The upload endpoint validates image content before storing it. With `MEDIA_STORAGE=local` (the development default), new images are saved under the ignored backend `uploads/` directory and served through `/uploads/*`; Cloudinary credentials are not required. With `MEDIA_STORAGE=cloudinary`, images are uploaded server-to-server and returned as HTTPS URLs. Configure all three of `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, and `CLOUDINARY_API_SECRET` in the backend's untracked `.env`; `.env.example` contains only empty values. Production requires Cloudinary storage and all three credentials.
+
+Keep the API secret on the backend only. Never put Cloudinary credentials in frontend environment variables or commit them to the repository. Existing `/uploads/*` and `/images/*` product references remain supported; selecting Cloudinary affects new uploads only.
+
 ## Development-only dummy catalogue
 
 The approved 24-product development sample catalogue is stored in `data/dev-products.json`. Its products use `dev-dummy-` slugs, local photos, integer paise prices, and the three `DEV SAMPLE` collections. Image source pages, contributor credits, Pexels License references, retrieval dates, and SHA-256 hashes are recorded in `frontend/public/images/dev-products/manifest.json`.

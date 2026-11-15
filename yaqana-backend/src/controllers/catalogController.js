@@ -11,10 +11,10 @@ const escapeRegex = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$
 const isAdmin = (req) => req.user?.role === 'admin';
 const requiredCategorySlugs = new Set(['t-shirts', 'hoodies', 'shirts', 'trousers']);
 const PRODUCT_STATUSES = new Set(['draft', 'active', 'archived', 'discontinued']);
-const parseList = (value, label, max = 30) => {
+const parseList = (value, label, max = 30, maxItemLength = 100) => {
   if (value == null || value === '') return [];
   const list = typeof value === 'string' ? value.split(',') : value;
-  if (!Array.isArray(list) || list.length > max || list.some((v) => typeof v !== 'string' || !v.trim() || v.length > 100)) throw httpError(400, `${label} must be a valid list.`);
+  if (!Array.isArray(list) || list.length > max || list.some((v) => typeof v !== 'string' || !v.trim() || v.length > maxItemLength)) throw httpError(400, `${label} must be a valid list.`);
   return [...new Set(list.map((v) => v.trim()))];
 };
 const parseMoneyPaise = (value, label, optional = false) => {
@@ -24,7 +24,7 @@ const parseMoneyPaise = (value, label, optional = false) => {
   return catalogUnitsToPaise(number);
 };
 const parseImages = (value) => {
-  const images = parseList(value, 'Images', 30);
+  const images = parseList(value, 'Images', 30, 2048);
   if (!images.length || images.some((url) => url.length > 2048 || !(url.startsWith('https://') || url.startsWith('http://') || url.startsWith('/uploads/') || url.startsWith('/images/')))) throw httpError(400, 'Provide at least one valid product image URL.');
   return images;
 };
@@ -41,7 +41,7 @@ const parseColours = (value) => {
   return value.map((colour) => {
     if (typeof colour === 'string') return { name: colour.trim(), hex: '#D4C5B9' };
     if (!colour || typeof colour.name !== 'string' || !colour.name.trim()) throw httpError(400, 'Each colour needs a name.');
-    const images = colour.images === undefined ? [] : parseList(colour.images, `Images for ${colour.name}`, 30);
+    const images = colour.images === undefined ? [] : parseList(colour.images, `Images for ${colour.name}`, 30, 2048);
     if (images.some((url) => url.length > 2048 || !(url.startsWith('https://') || url.startsWith('http://') || url.startsWith('/uploads/') || url.startsWith('/images/')))) {
       throw httpError(400, `Images for ${colour.name} contain an invalid URL.`);
     }

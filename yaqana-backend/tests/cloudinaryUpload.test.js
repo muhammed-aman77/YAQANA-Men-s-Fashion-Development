@@ -1,46 +1,135 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { uploadBufferToCloudinary } from '../src/utils/cloudinaryUpload.js';
+import {
+  createCloudinaryImageStore,
+  createImageUploadHandler,
+  isValidImageSignature,
+  uploadBufferToCloudinary
+} from '../src/utils/cloudinaryUpload.js';
 
-test('Cloudinary upload returns the secure hosted URL and uses the product media policy', async () => {
-  const buffer = Buffer.from('image bytes');
-  let receivedOptions;
+const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0x00, 0x01]);
+const secureUrl = 'https://res.cloudinary.com/yaqana/image/upload/v1/yaqana/products/photo.jpg';
+
+function createUploader(callbackForBuffer) {
+  let uploadOptions;
   const uploader = {
     upload_stream(options, callback) {
-      receivedOptions = options;
+      uploadOptions = options;
       return {
-        end(uploadedBuffer) {
-          assert.equal(uploadedBuffer, buffer);
-          callback(null, { secure_url: 'https://res.cloudinary.com/yaqana/image/upload/product.jpg' });
-        }
+        once() { return this; },
+        end(buffer) { callbackForBuffer(buffer, callback); }
       };
     }
   };
+  return { uploader, getUploadOptions: () => uploadOptions };
+}
 
-  const url = await uploadBufferToCloudinary(buffer, uploader);
-
-  assert.equal(url, 'https://res.cloudinary.com/yaqana/image/upload/product.jpg');
-  assert.equal(receivedOptions.folder, 'yaqana/products');
-  assert.equal(receivedOptions.resource_type, 'image');
-  assert.deepEqual(receivedOptions.allowed_formats, ['jpg', 'jpeg', 'png', 'webp', 'avif']);
-});
-
-test('Cloudinary upload failures are surfaced instead of returning a local-looking success URL', async () => {
-  const uploader = {
-    upload_stream(_options, callback) {
-      return { end() { callback(new Error('Cloudinary unavailable')); } };
+function createResponse() {
+  return {
+    statusCode: null,
+    body: null,
+    status(code) {
+      this.statusCode = code;
+      return this;
+    },
+    json(body) {
+      this.body = body;
+      return this;
     }
   };
+}
 
-  await assert.rejects(uploadBufferToCloudinary(Buffer.from('image'), uploader), /Cloudinary unavailable/);
+test('legacy Cloudinary upload returns a secure URL and keeps the product media policy', async () => {
+  const buffer = Buffer.from('image bytes');
+  const { uploader, getUploadOptions } = createUploader((uploadedBuffer, callback) => {
+    assert.equal(uploadedBuffer, buffer);
+    callback(null, { secure_url: secureUrl });
+  });
+
+  assert.equal(await uploadBufferToCloudinary(buffer, uploader), secureUrl);
+  assert.equal(getUploadOptions().folder, 'yaqana/products');
+  assert.equal(getUploadOptions().resource_type, 'image');
+  assert.deepEqual(getUploadOptions().allowed_formats, ['jpg', 'jpeg', 'png', 'webp', 'avif']);
 });
 
-test('Cloudinary upload rejects responses without a secure URL', async () => {
-  const uploader = {
-    upload_stream(_options, callback) {
-      return { end() { callback(null, { url: 'http://insecure.example/image.jpg' }); } };
-    }
-  };
+test('legacy Cloudinary upload surfaces provider errors and rejects insecure responses', async () => {
+  const failed = createUploader((_buffer, callback) => callback(new Error('Cloudinary unavailable')));
+  await assert.rejects(uploadBufferToCloudinary(jpeg, failed.uploader), /Cloudinary unavailable/);
 
-  await assert.rejects(uploadBufferToCloudinary(Buffer.from('image'), uploader), /secure URL/);
+  const insecure = createUploader((_buffer, callback) => callback(null, { url: 'http://insecure.example/image.jpg' }));
+  await assert.rejects(uploadBufferToCloudinary(jpeg, insecure.uploader), /secure URL/);
+});
+
+test('uploads a validated image and returns Cloudinary secure_url', async () => {
+  let uploadedBuffer;
+  const { uploader, getUploadOptions } = createUploader((buffer, callback) => {
+    uploadedBuffer = buffer;
+    callback(null, { secure_url: secureUrl });
+  });
+  const handler = createImageUploadHandler(createCloudinaryImageStore(uploader, true));
+  const response = createResponse();
+  const errors = [];
+
+  await handler({ file: { buffer: jpeg, mimetype: 'image/jpeg' } }, response, (error) => errors.push(error));
+
+  assert.deepEqual(errors, []);
+  assert.equal(uploadedBuffer, jpeg);
+  assert.equal(getUploadOptions().folder, 'yaqana/products');
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.body.imageUrl, secureUrl);
+});
+
+test('reports Cloudinary upload failures without returning a successful response', async () => {
+  const { uploader } = createUploader((_buffer, callback) => callback(new Error('provider unavailable')));
+  const handler = createImageUploadHandler(createCloudinaryImageStore(uploader, true));
+  const response = createResponse();
+  const errors = [];
+
+  await handler({ file: { buffer: jpeg, mimetype: 'image/jpeg' } }, response, (error) => errors.push(error));
+
+  assert.equal(response.statusCode, null);
+  assert.equal(response.body, null);
+  assert.equal(errors.length, 1);
+  assert.equal(errors[0].statusCode, 502);
+  assert.equal(errors[0].code, 'IMAGE_STORAGE_FAILED');
+});
+
+test('rejects uploads when Cloudinary is not configured', async () => {
+  let uploadStarted = false;
+  const { uploader } = createUploader(() => { uploadStarted = true; });
+  const storeImage = createCloudinaryImageStore(uploader, false);
+
+  await assert.rejects(storeImage(jpeg), {
+    statusCode: 503,
+    code: 'IMAGE_STORAGE_NOT_CONFIGURED'
+  });
+  assert.equal(uploadStarted, false);
+});
+
+test('rejects a signature mismatch before sending the buffer to Cloudinary', async () => {
+  let uploadStarted = false;
+  const { uploader } = createUploader(() => { uploadStarted = true; });
+  const handler = createImageUploadHandler(createCloudinaryImageStore(uploader, true));
+  const response = createResponse();
+  const errors = [];
+
+  await handler({ file: { buffer: Buffer.from('not an image'), mimetype: 'image/jpeg' } }, response, (error) => errors.push(error));
+
+  assert.equal(uploadStarted, false);
+  assert.equal(response.statusCode, null);
+  assert.equal(errors[0].statusCode, 415);
+  assert.equal(isValidImageSignature('image/jpeg', jpeg), true);
+});
+
+test('recognizes the supported image file signatures', () => {
+  const validImages = [
+    ['image/jpeg', Buffer.from([0xff, 0xd8, 0xff])],
+    ['image/png', Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])],
+    ['image/webp', Buffer.from('RIFF0000WEBP', 'ascii')],
+    ['image/avif', Buffer.from('0000ftypavif', 'ascii')],
+    ['image/avif', Buffer.from('0000ftypavis', 'ascii')]
+  ];
+
+  for (const [mime, buffer] of validImages) assert.equal(isValidImageSignature(mime, buffer), true);
+  assert.equal(isValidImageSignature('image/gif', Buffer.from('GIF89a')), false);
 });
