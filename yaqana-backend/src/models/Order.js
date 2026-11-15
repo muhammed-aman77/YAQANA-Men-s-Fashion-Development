@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import { paiseToCatalogUnits } from '../utils/money.js';
 const itemSchema = new mongoose.Schema({
   product: { type: mongoose.Schema.Types.ObjectId, ref: 'Product', required: true },
+  sku: { type: String, trim: true, uppercase: true, maxlength: 48, default: undefined },
   name: { type: String, required: true }, image: { type: String, default: '' }, category: { type: String, default: '' },
   pricePaise: { type: Number, required: true, min: 0, validate: Number.isSafeInteger }, quantity: { type: Number, required: true, min: 1 },
   size: { type: String, required: true }, colour: { type: String, required: true }

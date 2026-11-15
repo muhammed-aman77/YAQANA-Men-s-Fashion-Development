@@ -1,7 +1,17 @@
+import { randomBytes } from 'node:crypto';
 import User from '../models/User.js';
 import Session from '../models/Session.js';
 import { hashPassword, verifyPassword } from '../utils/password.js';
 import { issueToken } from '../utils/token.js';
+import { env } from '../config/env.js';
+import {
+  clearCookieOptions,
+  createCsrfCookieOptions,
+  createCsrfTokenHash,
+  createSessionCookieOptions,
+  CSRF_COOKIE_NAME,
+  SESSION_COOKIE_NAME
+} from '../utils/cookieAuth.js';
 import { asyncHandler, httpError } from '../utils/http.js';
 
 const publicUser = (user) => ({
@@ -9,10 +19,28 @@ const publicUser = (user) => ({
   phone: user.phone || '', role: user.role, status: user.status, createdAt: user.createdAt
 });
 
-async function createSession(user) {
+async function createSession(user, res) {
   const issued = issueToken(user._id);
-  await Session.create({ user: user._id, jti: issued.jti, expiresAt: issued.expiresAt });
-  return { success: true, token: issued.token, user: publicUser(user) };
+  const maxAgeMs = env.JWT_TTL_SECONDS * 1000;
+  const csrfToken = env.AUTH_COOKIE_ENABLED ? randomBytes(32).toString('base64url') : null;
+  await Session.create({
+    user: user._id,
+    jti: issued.jti,
+    expiresAt: issued.expiresAt,
+    csrfTokenHash: csrfToken ? createCsrfTokenHash(csrfToken) : null
+  });
+  if (env.AUTH_COOKIE_ENABLED) {
+    res.cookie(SESSION_COOKIE_NAME, issued.token, createSessionCookieOptions({
+      production: env.NODE_ENV === 'production',
+      maxAgeMs
+    }));
+    res.cookie(CSRF_COOKIE_NAME, csrfToken, createCsrfCookieOptions({
+      production: env.NODE_ENV === 'production',
+      maxAgeMs
+    }));
+    return { success: true, authMode: 'cookie', user: publicUser(user) };
+  }
+  return { success: true, authMode: 'bearer', token: issued.token, user: publicUser(user) };
 }
 
 export const register = asyncHandler(async (req, res) => {
@@ -26,7 +54,7 @@ export const register = asyncHandler(async (req, res) => {
   if (confirmPassword && password !== confirmPassword) throw httpError(400, 'Passwords do not match.');
   if (await User.exists({ email })) throw httpError(409, 'An account with this email already exists.', 'EMAIL_ALREADY_REGISTERED');
   const user = await User.create({ name, email, passwordHash: await hashPassword(password), role: 'customer' });
-  res.status(201).json(await createSession(user));
+  res.status(201).json(await createSession(user, res));
 });
 
 export const login = asyncHandler(async (req, res) => {
@@ -35,7 +63,7 @@ export const login = asyncHandler(async (req, res) => {
   const user = await User.findOne({ email }).select('+passwordHash');
   if (!user || !(await verifyPassword(password, user.passwordHash))) throw httpError(401, 'Invalid email or password.', 'INVALID_CREDENTIALS');
   if (user.status !== 'active') throw httpError(403, 'This account is currently unavailable.', 'ACCOUNT_BLOCKED');
-  res.status(200).json(await createSession(user));
+  res.status(200).json(await createSession(user, res));
 });
 
 export const getProfile = asyncHandler(async (req, res) => res.json({ success: true, user: publicUser(req.user) }));
@@ -65,10 +93,18 @@ export const changePassword = asyncHandler(async (req, res) => {
   user.passwordHash = await hashPassword(newPassword);
   await user.save();
   await Session.updateMany({ user: user._id, revokedAt: null }, { $set: { revokedAt: new Date() } });
+  clearAuthCookies(res);
   res.json({ success: true, message: 'Password changed. Please sign in again.' });
 });
 
 export const logout = asyncHandler(async (req, res) => {
   if (req.session) await Session.updateOne({ _id: req.session._id, revokedAt: null }, { $set: { revokedAt: new Date() } });
+  clearAuthCookies(res);
   res.json({ success: true, message: 'Logged out successfully.' });
 });
+
+function clearAuthCookies(res) {
+  const options = clearCookieOptions({ production: env.NODE_ENV === 'production' });
+  res.clearCookie(SESSION_COOKIE_NAME, options);
+  res.clearCookie(CSRF_COOKIE_NAME, options);
+}

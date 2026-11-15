@@ -1,11 +1,12 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { authService } from '../services/api';
+import { AUTH_MODE } from '../utils/authMode.js';
 
 const AuthContext = createContext();
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
-  const [token, setToken] = useState(sessionStorage.getItem('xora_token') || null);
+  const [token, setToken] = useState(AUTH_MODE === 'cookie' ? null : sessionStorage.getItem('xora_token') || null);
   const [loading, setLoading] = useState(true);
 
   // Initialize and load user
@@ -14,14 +15,14 @@ export const AuthProvider = ({ children }) => {
       localStorage.removeItem('xora_token');
       localStorage.removeItem('xora_user');
       const storedToken = sessionStorage.getItem('xora_token');
-      if (storedToken) {
+      if (AUTH_MODE === 'cookie' || storedToken) {
         try {
           const res = await authService.getProfile();
           if (res.data.success) {
             setUser(res.data.user);
           }
         } catch (error) {
-          console.warn('Session expired or invalid, clearing local credentials.');
+          if (error.response?.status !== 401) console.warn('Unable to verify the current session.');
           sessionStorage.removeItem('xora_token');
           sessionStorage.removeItem('xora_user');
           setToken(null);
@@ -45,10 +46,17 @@ export const AuthProvider = ({ children }) => {
     try {
       const res = await authService.login({ email, password });
       if (res.data.success) {
+        if (res.data.authMode && res.data.authMode !== AUTH_MODE) {
+          return { success: false, message: 'Frontend and backend authentication modes do not match.' };
+        }
         const { token: newToken, user: userData } = res.data;
-        sessionStorage.setItem('xora_token', newToken);
+        if (AUTH_MODE === 'bearer' && typeof newToken !== 'string') {
+          return { success: false, message: 'The backend did not return a bearer session.' };
+        }
+        if (AUTH_MODE === 'bearer') sessionStorage.setItem('xora_token', newToken);
+        else sessionStorage.removeItem('xora_token');
         sessionStorage.setItem('xora_user', JSON.stringify(userData));
-        setToken(newToken);
+        setToken(AUTH_MODE === 'cookie' ? null : newToken);
         setUser(userData);
         return { success: true, user: userData };
       }
@@ -64,10 +72,17 @@ export const AuthProvider = ({ children }) => {
     try {
       const res = await authService.register({ name, email, password, confirmPassword });
       if (res.data.success) {
+        if (res.data.authMode && res.data.authMode !== AUTH_MODE) {
+          return { success: false, message: 'Frontend and backend authentication modes do not match.' };
+        }
         const { token: newToken, user: userData } = res.data;
-        sessionStorage.setItem('xora_token', newToken);
+        if (AUTH_MODE === 'bearer' && typeof newToken !== 'string') {
+          return { success: false, message: 'The backend did not return a bearer session.' };
+        }
+        if (AUTH_MODE === 'bearer') sessionStorage.setItem('xora_token', newToken);
+        else sessionStorage.removeItem('xora_token');
         sessionStorage.setItem('xora_user', JSON.stringify(userData));
-        setToken(newToken);
+        setToken(AUTH_MODE === 'cookie' ? null : newToken);
         setUser(userData);
         return { success: true, user: userData };
       }
@@ -81,7 +96,7 @@ export const AuthProvider = ({ children }) => {
 
   const logout = () => {
     const currentToken = sessionStorage.getItem('xora_token');
-    if (currentToken) authService.logout(currentToken).catch(() => {});
+    if (AUTH_MODE === 'cookie' || currentToken) authService.logout(currentToken).catch(() => {});
     sessionStorage.removeItem('xora_token');
     sessionStorage.removeItem('xora_user');
     localStorage.removeItem('xora_token');

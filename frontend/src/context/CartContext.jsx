@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { cartService } from '../services/api';
 import { useAuth } from './AuthContext';
 import { getProductImage } from '../utils/productImage';
+import { getColourGallery, getVariantStock } from '../utils/productVariants';
 
 const CartContext = createContext();
 
@@ -13,12 +14,12 @@ const formatCartItems = (items = []) => items
     name: item.product.name,
     price: item.product.discountPrice || item.product.price,
     originalPrice: item.product.price,
-    image: getProductImage(item.product),
+    image: getProductImage({ ...item.product, images: getColourGallery(item.product, item.colour) }),
     category: item.product.category,
     size: item.size,
     colour: item.colour,
     quantity: item.quantity,
-    stock: item.product.stock
+    stock: getVariantStock(item.product, item.size, item.colour)
   }));
 
 export const CartProvider = ({ children }) => {
@@ -88,8 +89,10 @@ export const CartProvider = ({ children }) => {
     const selectedSize = size || (product.sizes && product.sizes[0]) || 'N/A';
     const selectedColour =
       colour || (product.colours && product.colours[0]?.name) || 'Default';
+    const selectedStock = getVariantStock(product, selectedSize, selectedColour);
+    if (quantity > selectedStock) return { success: false, message: 'The selected quantity is not currently available.' };
     const effectivePrice = product.discountPrice || product.price;
-    const image = getProductImage(product);
+    const image = getProductImage({ ...product, images: getColourGallery(product, selectedColour) });
 
     const addLocalItem = () => setItems((prev) => {
       const existingIdx = prev.findIndex(
@@ -120,7 +123,7 @@ export const CartProvider = ({ children }) => {
             size: selectedSize,
             colour: selectedColour,
             quantity,
-            stock: product.stock
+            stock: selectedStock
           }
         ];
       }

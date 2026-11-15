@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 import Order from '../models/Order.js';
 import Product from '../models/Product.js';
 import Cart from '../models/Cart.js';
+import StockMovement from '../models/StockMovement.js';
 import { asyncHandler, httpError } from '../utils/http.js';
 import { env } from '../config/env.js';
 import { PAISE_PER_CATALOG_UNIT, paiseToCatalogUnits } from '../utils/money.js';
@@ -11,10 +12,13 @@ import {
   getAllowedOrderTransitions,
   isKnownOrderStatus
 } from '../utils/orderStatus.js';
+import { buildStockMovementChange, buildVariantStockAdjustment } from '../utils/variantInventory.js';
+import { findProductVariant } from '../utils/productVariants.js';
+import { supportsMongoTransactions } from '../utils/mongoTransactions.js';
 
 const allowedPaymentMethods = new Set(['Cash on Delivery', 'Google Pay (UPI)', 'PhonePe (UPI)', 'Paytm (UPI)', 'UPI']);
 const requestFingerprint = (body) => createHash('sha256').update(JSON.stringify({
-  items: (body.items || []).map((item) => ({ product: String(item.product || item.productId), quantity: item.quantity, size: item.size || 'N/A', colour: item.colour || 'Default' })).sort((a, b) => a.product.localeCompare(b.product) || a.size.localeCompare(b.size) || a.colour.localeCompare(b.colour)),
+  items: (body.items || []).map((item) => ({ product: String(item.product || item.productId), sku: String(item.sku || ''), quantity: item.quantity, size: item.size || 'N/A', colour: item.colour || 'Default' })).sort((a, b) => a.product.localeCompare(b.product) || a.size.localeCompare(b.size) || a.colour.localeCompare(b.colour)),
   shippingAddress: body.shippingAddress, paymentMethod: body.paymentMethod, notes: body.notes || ''
 })).digest('hex');
 
@@ -37,12 +41,16 @@ export const createOrder = asyncHandler(async (req, res) => {
     if (existing.requestHash !== requestHash) throw httpError(409, 'This checkout key was already used for a different order. Please refresh checkout.', 'IDEMPOTENCY_KEY_REUSED');
     return res.json({ success: true, message: 'This checkout was already completed.', order: existing });
   }
+  if (!supportsMongoTransactions()) {
+    throw httpError(503, 'Order checkout requires MongoDB replica-set or sharded transactions to keep stock, order, and cart changes consistent.', 'TRANSACTIONS_REQUIRED');
+  }
 
   const session = await mongoose.startSession();
   let order;
   try {
     await session.withTransaction(async () => {
       const orderItems = [];
+      const stockChanges = [];
       let subtotalPaise = 0;
       for (const item of items) {
         const productId = item?.product || item?.productId;
@@ -54,11 +62,20 @@ export const createOrder = asyncHandler(async (req, res) => {
         const colour = String(item.colour || 'Default');
         if (product.sizes.length && !product.sizes.includes(size)) throw httpError(400, `Please select a valid size for ${product.name}.`);
         if (product.colours.length && !product.colours.some((entry) => entry.name.toLowerCase() === colour.toLowerCase())) throw httpError(400, `Please select a valid colour for ${product.name}.`);
-        const updated = await Product.findOneAndUpdate({ _id: product._id, stock: { $gte: quantity }, active: { $ne: false } }, { $inc: { stock: -quantity } }, { new: true, session });
+        const variant = findProductVariant(product, size, colour);
+        if (product.variants.length && !variant) throw httpError(409, `The selected size and colour for ${product.name} are unavailable.`);
+        const stockAdjustment = variant ? buildVariantStockAdjustment(variant.sku, quantity, 'decrease') : null;
+        const stockFilter = variant
+          ? { _id: product._id, stock: { $gte: quantity }, active: { $ne: false }, variants: { $elemMatch: stockAdjustment.filter } }
+          : { _id: product._id, stock: { $gte: quantity }, active: { $ne: false } };
+        const stockUpdate = stockAdjustment?.update || { $inc: { stock: -quantity } };
+        const updated = await Product.findOneAndUpdate(stockFilter, stockUpdate, { new: true, session });
         if (!updated) throw httpError(409, `Insufficient stock for ${product.name}.`);
+        stockChanges.push(buildStockMovementChange(product, variant, -quantity));
         const pricePaise = product.discountPricePaise ?? product.pricePaise;
         subtotalPaise += pricePaise * quantity;
-        orderItems.push({ product: product._id, name: product.name, image: product.images[0] || '', category: product.category, pricePaise, quantity, size, colour });
+        const colourGallery = product.colours.find((entry) => entry.name.toLowerCase() === colour.toLowerCase())?.images || [];
+        orderItems.push({ product: product._id, sku: variant?.sku, name: product.name, image: colourGallery[0] || product.images[0] || '', category: product.category, pricePaise, quantity, size, colour });
       }
       // Compatibility pricing mirrors the currently deployed storefront until its pricing UI is updated.
       // These are legacy provisional settings, not approved final YAQANA shipping/tax policy.
@@ -72,6 +89,13 @@ export const createOrder = asyncHandler(async (req, res) => {
         paymentMethod, paymentStatus: 'Pending', orderStatus: 'Confirmed',
         subtotalPaise, shippingFeePaise, taxPaise, totalPaise, notes: String(notes).slice(0, 1000),
         statusHistory: [{ status: 'Confirmed', changedBy: req.user._id, reason: 'Order placed through storefront' }]
+      }], { session });
+      await StockMovement.create([{
+        changes: stockChanges,
+        reason: 'Order placed through storefront',
+        type: 'order',
+        referenceId: order._id,
+        performedBy: req.user._id
       }], { session });
       await Cart.findOneAndUpdate({ user: req.user._id }, { $set: { items: [] } }, { session });
     });
@@ -131,6 +155,9 @@ export const getAllOrders = asyncHandler(async (req, res) => {
 export const updateOrderStatus = asyncHandler(async (req, res) => {
   const { orderStatus, notes } = req.body || {};
   if (!isKnownOrderStatus(orderStatus)) throw httpError(400, 'Invalid order status.');
+  if (!supportsMongoTransactions()) {
+    throw httpError(503, 'Order status changes and stock restoration require MongoDB replica-set or sharded transactions.', 'TRANSACTIONS_REQUIRED');
+  }
   const session = await mongoose.startSession();
   let order;
   try {
@@ -139,7 +166,34 @@ export const updateOrderStatus = asyncHandler(async (req, res) => {
       if (!order) throw httpError(404, 'Order not found.');
       if (!canTransitionOrderStatus(order.orderStatus, orderStatus)) throw httpError(409, `Order cannot move from ${order.orderStatus} to ${orderStatus}.`);
       if (orderStatus === 'Cancelled' && ['Confirmed', 'Pending', 'Processing'].includes(order.orderStatus)) {
-        for (const item of order.items) await Product.updateOne({ _id: item.product }, { $inc: { stock: item.quantity } }, { session });
+        const stockChanges = [];
+        for (const item of order.items) {
+          const product = await Product.findById(item.product).session(session);
+          if (!product) throw httpError(409, 'Could not restore inventory because a product is missing.');
+          if (item.sku) {
+            const variant = product.variants.find((entry) => entry.sku === item.sku);
+            if (!variant) throw httpError(409, `Could not restore inventory for SKU ${item.sku}.`);
+            const adjustment = buildVariantStockAdjustment(item.sku, item.quantity, 'increase');
+            const result = await Product.updateOne({ _id: item.product, variants: { $elemMatch: adjustment.filter } }, adjustment.update, { session });
+            if (!result.matchedCount) throw httpError(409, `Could not restore inventory for SKU ${item.sku}.`);
+            stockChanges.push(buildStockMovementChange(product, variant, item.quantity));
+          } else {
+            const result = await Product.updateOne(
+              { _id: item.product, stock: { $lte: Number.MAX_SAFE_INTEGER - item.quantity } },
+              { $inc: { stock: item.quantity } },
+              { session }
+            );
+            if (!result.matchedCount) throw httpError(409, `Could not restore inventory for ${product.name}.`);
+            stockChanges.push(buildStockMovementChange(product, null, item.quantity));
+          }
+        }
+        await StockMovement.create([{
+          changes: stockChanges,
+          reason: 'Order cancelled; stock returned to available inventory',
+          type: 'order_cancel',
+          referenceId: order._id,
+          performedBy: req.user._id
+        }], { session });
       }
       if (orderStatus !== order.orderStatus) {
         order.orderStatus = orderStatus;

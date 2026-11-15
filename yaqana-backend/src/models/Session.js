@@ -3,7 +3,8 @@ const sessionSchema = new mongoose.Schema({
   user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
   jti: { type: String, required: true, unique: true },
   expiresAt: { type: Date, required: true },
-  revokedAt: { type: Date, default: null }
+  revokedAt: { type: Date, default: null },
+  csrfTokenHash: { type: String, default: null, select: false }
 }, { timestamps: true });
 sessionSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 export default mongoose.model('Session', sessionSchema);

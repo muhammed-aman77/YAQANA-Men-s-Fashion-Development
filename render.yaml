@@ -1,0 +1,35 @@
+services:
+  - type: web
+    name: yaqana-men-s-fashion-development
+    runtime: node
+    rootDir: yaqana-backend
+    plan: free
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /api/health/ready
+    autoDeploy: false
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: TRUST_PROXY
+        value: "true"
+      - key: AUTH_COOKIE_ENABLED
+        value: "true"
+      - key: REQUIRE_MONGO_TRANSACTIONS
+        value: "true"
+      - key: MEDIA_STORAGE
+        value: cloudinary
+      - key: JWT_TTL_SECONDS
+        value: "86400"
+      - key: MONGODB_URI
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: FRONTEND_ORIGINS
+        sync: false
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false

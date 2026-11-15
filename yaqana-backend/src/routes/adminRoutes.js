@@ -1,9 +1,13 @@
 import { Router } from 'express';
 import { getDashboardStats, getCustomers, updateCustomerStatus } from '../controllers/adminController.js';
+import { adjustInventory, getInventory, getInventoryMovements } from '../controllers/inventoryController.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 const router = Router();
 router.use(requireAuth, requireAdmin);
 router.get('/stats', getDashboardStats);
 router.get('/customers', getCustomers);
 router.put('/customers/:id/status', updateCustomerStatus);
+router.get('/inventory', getInventory);
+router.get('/inventory/movements', getInventoryMovements);
+router.post('/inventory/adjustments', adjustInventory);
 export default router;

@@ -4,6 +4,7 @@ import { Heart, ShoppingBag, Truck, RefreshCw, ShieldCheck, ChevronRight, Check,
 import { productService } from '../services/api';
 import { formatInr } from '../utils/currency';
 import { getProductImage, getProductImages, getCategoryImage, PRODUCT_IMAGE_FALLBACK } from '../utils/productImage';
+import { getColourGallery, getVariantStock } from '../utils/productVariants';
 import { useCart } from '../context/CartContext';
 import { useWishlist } from '../context/WishlistContext';
 import ProductCard from '../components/ProductCard';
@@ -34,10 +35,11 @@ export default function ProductDetail() {
         const res = await productService.getProductById(id);
         if (res.data.success) {
           const prod = res.data.product;
+          const firstColour = prod.colours?.[0]?.name || 'Default';
           setProduct(prod);
-          setSelectedImage(getProductImage(prod));
+          setSelectedImage(getProductImage({ ...prod, images: getColourGallery(prod, firstColour) }));
           setSelectedSize(prod.sizes?.[0] || '');
-          setSelectedColour(prod.colours?.[0]?.name || 'Default');
+          setSelectedColour(firstColour);
           setRelatedProducts(res.data.relatedProducts || []);
         }
       } catch (err) {
@@ -78,8 +80,17 @@ export default function ProductDetail() {
   }
 
   const isFavorited = isInWishlist(product._id);
-  const isOutOfStock = product.stock <= 0;
-  const isLowStock = product.stock > 0 && product.stock <= 5;
+  const selectedStock = getVariantStock(product, selectedSize, selectedColour);
+  const selectedGalleryProduct = { ...product, images: getColourGallery(product, selectedColour) };
+  const selectedImages = getProductImages(selectedGalleryProduct);
+  const isOutOfStock = selectedStock <= 0;
+  const isLowStock = selectedStock > 0 && selectedStock <= 5;
+
+  const handleColourSelection = (colour) => {
+    setSelectedColour(colour);
+    setQuantity(1);
+    setSelectedImage(getProductImage({ ...product, images: getColourGallery(product, colour) }));
+  };
 
   const handleAddToCart = async () => {
     if (isOutOfStock || addingToCart) return;
@@ -116,9 +127,9 @@ export default function ProductDetail() {
           {/* Left Column: Images */}
           <div className="lg:col-span-7 flex flex-col-reverse sm:flex-row gap-4">
             {/* Thumbnail selector */}
-            {getProductImages(product).length > 1 && (
+            {selectedImages.length > 1 && (
               <div className="flex sm:flex-col gap-3 overflow-x-auto sm:overflow-visible">
-                {getProductImages(product).map((img, idx) => (
+                {selectedImages.map((img, idx) => (
                   <button
                     key={idx}
                     type="button"
@@ -138,7 +149,7 @@ export default function ProductDetail() {
             {/* Large Preview */}
             <div className="flex-1 aspect-[3/4] bg-xora-sand/50 rounded-xs overflow-hidden shadow-xs relative">
               <img
-                src={selectedImage || getProductImage(product)}
+                src={selectedImage || getProductImage(selectedGalleryProduct)}
                 alt={product.name}
                 className="w-full h-full object-contain object-center bg-xora-sand/30"
                 onError={(event) => {
@@ -210,7 +221,7 @@ export default function ProductDetail() {
                     <button
                       key={idx}
                       type="button"
-                      onClick={() => setSelectedColour(col.name)}
+                      onClick={() => handleColourSelection(col.name)}
                       className={`group relative p-1 rounded-full border-2 transition-all ${
                         selectedColour === col.name ? 'border-xora-charcoal' : 'border-transparent'
                       }`}
@@ -248,7 +259,10 @@ export default function ProductDetail() {
                     <button
                       key={sz}
                       type="button"
-                      onClick={() => setSelectedSize(sz)}
+                      onClick={() => {
+                        setSelectedSize(sz);
+                        setQuantity(1);
+                      }}
                       className={`py-3 text-xs font-medium uppercase tracking-wider border rounded-xs transition-all ${
                         selectedSize === sz
                           ? 'border-xora-charcoal bg-xora-charcoal text-white shadow-xs'
@@ -267,7 +281,7 @@ export default function ProductDetail() {
               {isOutOfStock ? (
                 <span className="text-red-700 font-medium">Currently Sold Out</span>
               ) : isLowStock ? (
-                <span className="text-amber-800 font-medium">Only {product.stock} items remaining in atelier</span>
+                <span className="text-amber-800 font-medium">Only {selectedStock} items remaining in atelier</span>
               ) : (
                 <span className="text-emerald-800 font-medium">In Stock • Ready for dispatch</span>
               )}
@@ -291,8 +305,8 @@ export default function ProductDetail() {
                   </span>
                   <button
                     type="button"
-                    onClick={() => setQuantity((q) => Math.min(product.stock, q + 1))}
-                    disabled={quantity >= product.stock || isOutOfStock}
+                    onClick={() => setQuantity((q) => Math.min(selectedStock, q + 1))}
+                    disabled={quantity >= selectedStock || isOutOfStock}
                     className="p-1 text-xora-charcoal hover:text-black disabled:opacity-40"
                   >
                     +

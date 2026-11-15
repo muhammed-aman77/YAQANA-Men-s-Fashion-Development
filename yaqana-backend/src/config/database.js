@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import { env } from './env.js';
+import { requireTransactionTopology } from '../utils/mongoTransactions.js';
 
 export async function connectDatabase() {
   mongoose.set('strictQuery', true);
@@ -8,6 +9,12 @@ export async function connectDatabase() {
     maxPoolSize: 20,
     minPoolSize: 2
   });
+  try {
+    requireTransactionTopology(mongoose.connection, env.REQUIRE_MONGO_TRANSACTIONS);
+  } catch (error) {
+    await mongoose.disconnect();
+    throw error;
+  }
   return mongoose.connection;
 }
 

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext.jsx';
 import { CartProvider } from './context/CartContext.jsx';
 import { WishlistProvider } from './context/WishlistContext.jsx';
@@ -31,17 +31,19 @@ import StorePolicies from './pages/StorePolicies.jsx';
 
 function AppShell() {
   const [searchOpen, setSearchOpen] = useState(false);
+  const location = useLocation();
+  const isAdminRoute = location.pathname.startsWith('/admin');
 
   return (
     <>
-      <ScrollManager />
-      <IntroSplash />
-      <Navbar onOpenSearch={() => setSearchOpen(true)} />
-      <CartDrawer />
-      <SearchModal isOpen={searchOpen} onClose={() => setSearchOpen(false)} />
+      {!isAdminRoute && <ScrollManager />}
+      {!isAdminRoute && <IntroSplash />}
+      {!isAdminRoute && <Navbar onOpenSearch={() => setSearchOpen(true)} />}
+      {!isAdminRoute && <CartDrawer />}
+      {!isAdminRoute && <SearchModal isOpen={searchOpen} onClose={() => setSearchOpen(false)} />}
 
-      <div className="pb-[calc(4rem+env(safe-area-inset-bottom))] lg:pb-0">
-        <main>
+      <div className={isAdminRoute ? 'admin-route-shell' : 'pb-[calc(4rem+env(safe-area-inset-bottom))] lg:pb-0'}>
+        <main className={isAdminRoute ? 'admin-route-main' : ''}>
           <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/shop" element={<Shop initialGender="men" pageTitle="Men's Collection" />} />
@@ -77,7 +79,7 @@ function AppShell() {
           </Routes>
         </main>
 
-        <Footer />
+        {!isAdminRoute && <Footer />}
       </div>
     </>
   );

@@ -1,12 +1,21 @@
 import axios from 'axios';
 import { API_BASE_URL } from '../utils/apiUrl.js';
+import { AUTH_MODE, CSRF_COOKIE_NAME, readCookieValue } from '../utils/authMode.js';
 
 const API = axios.create({
-  baseURL: API_BASE_URL
+  baseURL: API_BASE_URL,
+  withCredentials: AUTH_MODE === 'cookie'
 });
 
-// Intercept request to attach auth token
 API.interceptors.request.use((config) => {
+  if (AUTH_MODE === 'cookie') {
+    if (!['get', 'head', 'options'].includes(String(config.method || 'get').toLowerCase())) {
+      const csrfToken = readCookieValue(document.cookie, CSRF_COOKIE_NAME);
+      if (csrfToken) config.headers['X-YAQANA-CSRF-TOKEN'] = csrfToken;
+    }
+    return config;
+  }
+
   const token = sessionStorage.getItem('xora_token');
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
@@ -14,12 +23,10 @@ API.interceptors.request.use((config) => {
   return config;
 });
 
-// Intercept response for unauthorized tokens
 API.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response && error.response.status === 401) {
-      // Clear token if invalid or expired session
       const currentPath = window.location.pathname;
       if (currentPath.startsWith('/account') || currentPath.startsWith('/admin')) {
         sessionStorage.removeItem('xora_token');
@@ -39,7 +46,9 @@ export const authService = {
   getProfile: () => API.get('/auth/profile'),
   updateProfile: (data) => API.put('/auth/profile', data),
   changePassword: (data) => API.put('/auth/change-password', data),
-  logout: (token) => API.post('/auth/logout', {}, { headers: { Authorization: `Bearer ${token}` } })
+  logout: (token) => API.post('/auth/logout', {}, token
+    ? { headers: { Authorization: `Bearer ${token}` } }
+    : undefined)
 };
 
 // Product Services
@@ -100,7 +109,19 @@ export const addressService = {
 export const adminService = {
   getStats: () => API.get('/admin/stats'),
   getCustomers: () => API.get('/admin/customers'),
-  updateCustomerStatus: (id, data) => API.put(`/admin/customers/${id}/status`, data)
+  updateCustomerStatus: (id, data) => API.put(`/admin/customers/${id}/status`, data),
+  getInventory: () => API.get('/admin/inventory'),
+  getInventoryMovements: (params) => API.get('/admin/inventory/movements', { params }),
+  adjustInventory: (data, idempotencyKey) => API.post('/admin/inventory/adjustments', data, { headers: { 'Idempotency-Key': idempotencyKey } })
+};
+
+export const supportService = {
+  getTickets: (params) => API.get('/support/tickets', { params }),
+  getTicket: (id) => API.get(`/support/tickets/${id}`),
+  createTicket: (data) => API.post('/support/tickets', data),
+  updateTicket: (id, data) => API.patch(`/support/tickets/${id}`, data),
+  addReply: (id, message) => API.post(`/support/tickets/${id}/replies`, { message }),
+  getAssignees: () => API.get('/support/assignees')
 };
 
 // Upload Service

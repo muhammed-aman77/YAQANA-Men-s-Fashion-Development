@@ -5,10 +5,12 @@ import Collection from '../models/Collection.js';
 import { asyncHandler, httpError, slugify } from '../utils/http.js';
 import { catalogUnitsToPaise } from '../utils/money.js';
 import { buildEffectivePriceFilter } from '../utils/effectivePriceFilter.js';
+import { assertVariantInventoryUnchanged, validateVariantMatrix } from '../utils/productVariants.js';
 
 const escapeRegex = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const isAdmin = (req) => req.user?.role === 'admin';
 const requiredCategorySlugs = new Set(['t-shirts', 'hoodies', 'shirts', 'trousers']);
+const PRODUCT_STATUSES = new Set(['draft', 'active', 'archived', 'discontinued']);
 const parseList = (value, label, max = 30) => {
   if (value == null || value === '') return [];
   const list = typeof value === 'string' ? value.split(',') : value;
@@ -26,6 +28,12 @@ const parseImages = (value) => {
   if (!images.length || images.some((url) => url.length > 2048 || !(url.startsWith('https://') || url.startsWith('http://') || url.startsWith('/uploads/') || url.startsWith('/images/')))) throw httpError(400, 'Provide at least one valid product image URL.');
   return images;
 };
+const parseProductImages = (value, colours) => {
+  const supplied = Array.isArray(value) ? value.length > 0 : String(value || '').trim().length > 0;
+  if (supplied) return parseImages(value);
+  const primaryGallery = colours.find((colour) => colour.images.length)?.images || [];
+  return parseImages(primaryGallery);
+};
 const parseColours = (value) => {
   if (typeof value === 'string') return value.split(',').map((name) => ({ name: name.trim(), hex: '#D4C5B9' })).filter((x) => x.name);
   if (value == null) return [];
@@ -33,8 +41,22 @@ const parseColours = (value) => {
   return value.map((colour) => {
     if (typeof colour === 'string') return { name: colour.trim(), hex: '#D4C5B9' };
     if (!colour || typeof colour.name !== 'string' || !colour.name.trim()) throw httpError(400, 'Each colour needs a name.');
-    return { name: colour.name.trim(), hex: /^#[0-9a-f]{6}$/i.test(colour.hex || '') ? colour.hex : '#D4C5B9' };
+    const images = colour.images === undefined ? [] : parseList(colour.images, `Images for ${colour.name}`, 30);
+    if (images.some((url) => url.length > 2048 || !(url.startsWith('https://') || url.startsWith('http://') || url.startsWith('/uploads/') || url.startsWith('/images/')))) {
+      throw httpError(400, `Images for ${colour.name} contain an invalid URL.`);
+    }
+    return {
+      name: colour.name.trim(),
+      hex: /^#[0-9a-f]{6}$/i.test(colour.hex || '') ? colour.hex : '#D4C5B9',
+      images
+    };
   });
+};
+const ensureVariantSkusAvailable = async (variants, excludeProductId = null) => {
+  if (!variants.length) return;
+  const query = { 'variants.sku': { $in: variants.map(({ sku }) => sku) } };
+  if (excludeProductId) query._id = { $ne: excludeProductId };
+  if (await Product.exists(query)) throw httpError(409, 'One or more variant SKUs are already in use.', 'DUPLICATE_VARIANT_SKU');
 };
 const parseMeasurements = (value) => {
   if (value === undefined || value === null || value === '') return undefined;
@@ -108,19 +130,26 @@ export const createProduct = asyncHandler(async (req, res) => {
   const discountPricePaise = body.discountPricePaise !== undefined ? (body.discountPricePaise == null ? null : Number(body.discountPricePaise)) : parseMoneyPaise(body.discountPrice, 'Sale price', true);
   if (!Number.isSafeInteger(pricePaise) || pricePaise < 0 || (discountPricePaise !== null && (!Number.isSafeInteger(discountPricePaise) || discountPricePaise < 0 || discountPricePaise > pricePaise))) throw httpError(400, 'Price or sale price is invalid.');
   const sizes = parseList(body.sizes, 'Sizes', 20);
+  const colours = parseColours(body.colours);
+  const variants = body.variants === undefined ? [] : validateVariantMatrix(sizes, colours, body.variants);
+  await ensureVariantSkusAvailable(variants);
   const stock = body.stock === undefined ? 0 : Number(body.stock);
   if (!Number.isSafeInteger(stock) || stock < 0) throw httpError(400, 'Stock must be a non-negative whole number.');
   const slug = slugify(body.slug || name);
   if (!slug) throw httpError(400, 'Product slug is invalid.');
+  const status = body.status === undefined
+    ? (body.active === false || body.active === 'false' ? 'archived' : 'active')
+    : body.status;
+  if (!PRODUCT_STATUSES.has(status)) throw httpError(400, 'Product status is invalid.');
   const product = await Product.create({
     name, slug, description, shortDescription: body.shortDescription || '', category,
     gender: ['men', 'women', 'unisex'].includes(body.gender) ? body.gender : 'men',
-    pricePaise, discountPricePaise, sizes, colours: parseColours(body.colours), stock,
-    images: parseImages(body.images), featured: body.featured === true || body.featured === 'true',
+    pricePaise, discountPricePaise, sizes, colours, variants, stock,
+    images: parseProductImages(body.images, colours), featured: body.featured === true || body.featured === 'true',
     newArrival: body.newArrival === true || body.newArrival === 'true', bestSeller: body.bestSeller === true || body.bestSeller === 'true',
     fabricDetails: body.fabricDetails || '', fitDetails: body.fitDetails || '', careInstructions: body.careInstructions || '',
     collectionName: body.collection || body.collectionName || '', measurements: parseMeasurements(body.measurements),
-    shippingDetails: body.shippingDetails || '', active: body.active !== false && body.active !== 'false'
+    shippingDetails: body.shippingDetails || '', status, active: status === 'active'
   });
   res.status(201).json({ success: true, message: 'Product created successfully.', product });
 });
@@ -130,7 +159,8 @@ export const updateProduct = asyncHandler(async (req, res) => {
   const product = await Product.findById(req.params.id);
   if (!product) throw httpError(404, 'Product not found.');
   const body = req.body || {};
-  const allowed = ['name', 'description', 'shortDescription', 'category', 'gender', 'sizes', 'colours', 'stock', 'images', 'featured', 'newArrival', 'bestSeller', 'fabricDetails', 'fitDetails', 'careInstructions', 'collection', 'collectionName', 'measurements', 'shippingDetails', 'active'];
+  if (body.stock !== undefined) throw httpError(400, 'Stock must be changed through inventory adjustments.');
+  const allowed = ['name', 'description', 'shortDescription', 'category', 'gender', 'sizes', 'colours', 'images', 'featured', 'newArrival', 'bestSeller', 'fabricDetails', 'fitDetails', 'careInstructions', 'collection', 'collectionName', 'measurements', 'shippingDetails', 'active'];
   for (const key of allowed) if (body[key] !== undefined) {
     const target = key === 'collection' ? 'collectionName' : key;
     product[target] = ['sizes'].includes(key) ? parseList(body[key], 'Sizes', 20)
@@ -138,6 +168,23 @@ export const updateProduct = asyncHandler(async (req, res) => {
       : key === 'images' ? parseImages(body[key])
       : key === 'measurements' ? parseMeasurements(body[key])
       : body[key];
+  }
+  if (body.status !== undefined) {
+    if (!PRODUCT_STATUSES.has(body.status)) throw httpError(400, 'Product status is invalid.');
+    product.status = body.status;
+    product.active = body.status === 'active';
+  }
+  if (body.variants !== undefined) {
+    const variants = validateVariantMatrix(product.sizes, product.colours, body.variants);
+    if (product.variants.length) {
+      assertVariantInventoryUnchanged(product.variants, variants);
+    } else if (variants.length && variants.reduce((total, variant) => total + variant.stock, 0) !== product.stock) {
+      throw httpError(409, 'Allocate the existing product stock across every SKU before enabling SKU variants.', 'VARIANT_STOCK_MISMATCH');
+    }
+    product.variants = variants;
+    await ensureVariantSkusAvailable(product.variants, product._id);
+  } else if (product.variants.length && (body.sizes !== undefined || body.colours !== undefined)) {
+    throw httpError(400, 'Update the full SKU variant matrix when changing sizes or colours.');
   }
   if (body.price !== undefined) product.pricePaise = parseMoneyPaise(body.price, 'Price');
   if (body.pricePaise !== undefined) {
@@ -152,13 +199,12 @@ export const updateProduct = asyncHandler(async (req, res) => {
     product.discountPricePaise = value;
   }
   if (product.discountPricePaise != null && product.discountPricePaise > product.pricePaise) throw httpError(400, 'Sale price cannot exceed regular price.');
-  if (body.stock !== undefined && (!Number.isSafeInteger(Number(body.stock)) || Number(body.stock) < 0)) throw httpError(400, 'Stock must be a non-negative whole number.');
   await product.save();
   res.json({ success: true, message: 'Product updated successfully.', product });
 });
 
 export const archiveProduct = asyncHandler(async (req, res) => {
-  const product = await Product.findByIdAndUpdate(req.params.id, { $set: { active: false } }, { new: true });
+  const product = await Product.findByIdAndUpdate(req.params.id, { $set: { active: false, status: 'archived' } }, { new: true });
   if (!product) throw httpError(404, 'Product not found.');
   res.json({ success: true, message: 'Product archived successfully.', product });
 });

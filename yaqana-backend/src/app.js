@@ -12,6 +12,7 @@ import wishlistRoutes from './routes/wishlistRoutes.js';
 import addressRoutes from './routes/addressRoutes.js';
 import orderRoutes from './routes/orderRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
+import supportRoutes from './routes/supportRoutes.js';
 import uploadRoutes, { uploadDirectory } from './routes/uploadRoutes.js';
 import { notFound } from './middleware/notFound.js';
 import { errorHandler } from './middleware/errorHandler.js';
@@ -36,7 +37,9 @@ app.use(express.json({ limit: '1mb', strict: true }));
 app.use(express.urlencoded({ extended: false, limit: '1mb' }));
 app.use(rateLimit({ windowMs: 60_000, limit: 300, standardHeaders: 'draft-8', legacyHeaders: false }));
 app.use('/api/auth', rateLimit({ windowMs: 15 * 60_000, limit: 20, standardHeaders: 'draft-8', legacyHeaders: false }));
-app.use('/uploads', express.static(uploadDirectory, { fallthrough: false, maxAge: '7d', immutable: true }));
+if (env.MEDIA_STORAGE === 'local') {
+  app.use('/uploads', express.static(uploadDirectory, { fallthrough: false, maxAge: '7d', immutable: true }));
+}
 
 app.get('/', (req, res) => res.status(200).json({ success: true, service: 'yaqana-api', message: 'YAQANA API is running.' }));
 app.use('/api/health', healthRoutes);
@@ -48,6 +51,7 @@ app.use('/api/wishlist', wishlistRoutes);
 app.use('/api/addresses', addressRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/support', supportRoutes);
 app.use('/api/upload', uploadRoutes);
 
 // Remaining commerce routes will be mounted as their models, validation and tests are completed.

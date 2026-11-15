@@ -3,7 +3,15 @@ import { paiseToCatalogUnits } from '../utils/money.js';
 
 const colourSchema = new mongoose.Schema({
   name: { type: String, required: true, trim: true, maxlength: 50 },
-  hex: { type: String, default: '#D4C5B9', match: /^#[0-9A-Fa-f]{6}$/ }
+  hex: { type: String, default: '#D4C5B9', match: /^#[0-9A-Fa-f]{6}$/ },
+  images: { type: [String], default: [] }
+}, { _id: false });
+
+const variantSchema = new mongoose.Schema({
+  size: { type: String, required: true, trim: true, maxlength: 30 },
+  colour: { type: String, required: true, trim: true, maxlength: 50 },
+  sku: { type: String, required: true, uppercase: true, trim: true, maxlength: 48, match: /^[A-Z0-9][A-Z0-9._-]{1,47}$/ },
+  stock: { type: Number, required: true, min: 0, validate: Number.isSafeInteger }
 }, { _id: false });
 
 const productSchema = new mongoose.Schema({
@@ -17,8 +25,12 @@ const productSchema = new mongoose.Schema({
   discountPricePaise: { type: Number, default: null, min: 0, validate: (value) => value == null || Number.isSafeInteger(value) },
   sizes: { type: [String], default: [] },
   colours: { type: [colourSchema], default: [] },
+  variants: { type: [variantSchema], default: [] },
   stock: { type: Number, default: 0, min: 0, validate: Number.isInteger },
+  inventoryLock: { type: mongoose.Schema.Types.ObjectId, default: undefined, select: false },
+  lastInventoryMovement: { type: mongoose.Schema.Types.ObjectId, default: undefined, select: false },
   images: { type: [String], default: [] },
+  status: { type: String, enum: ['draft', 'active', 'archived', 'discontinued', null], default: null },
   featured: { type: Boolean, default: false },
   newArrival: { type: Boolean, default: false },
   bestSeller: { type: Boolean, default: false },
@@ -42,8 +54,18 @@ const productSchema = new mongoose.Schema({
   toObject: { virtuals: true }
 });
 
+productSchema.pre('validate', function deriveAggregateStock() {
+  if (this.variants.length) this.stock = this.variants.reduce((total, variant) => total + variant.stock, 0);
+  if (this.isModified('status') && this.status) {
+    this.active = this.status === 'active';
+  } else if (this.isNew || this.isModified('active')) {
+    this.status = this.active ? 'active' : 'archived';
+  }
+});
+
 productSchema.index({ name: 'text', description: 'text', category: 'text' });
 productSchema.index({ active: 1, gender: 1, category: 1, createdAt: -1 });
 productSchema.index({ active: 1, newArrival: 1, createdAt: -1 });
 productSchema.index({ collectionName: 1, active: 1 });
+productSchema.index({ 'variants.sku': 1 }, { unique: true, sparse: true });
 export default mongoose.model('Product', productSchema);

@@ -8,16 +8,22 @@
     "node": ">=22"
   },
   "scripts": {
-    "dev": "node --watch src/server.js",
+    "dev": "node --watch scripts/startLocalDev.js",
+    "dev:local": "node --watch scripts/startLocalDev.js",
     "start": "node src/server.js",
+    "start:local": "node scripts/startLocalDev.js",
     "test": "node --test",
     "check": "node scripts/checkSyntax.js",
     "create-admin": "node scripts/createAdmin.js",
+    "create-admin:local": "node scripts/createLocalAdmin.js",
+    "provision-admin:staging": "node scripts/provisionStagingAdmin.js",
     "seed:categories": "node scripts/seedCategories.js",
     "seed:dummy-catalog": "node scripts/seedDummyCatalog.js",
+    "seed:local-dummy-catalog": "node scripts/seedLocalDummyCatalog.js",
     "remove:dummy-catalog": "node scripts/removeDummyCatalog.js"
   },
   "dependencies": {
+    "cloudinary": "^2.11.0",
     "cors": "^2.8.5",
     "dotenv": "^16.6.1",
     "express": "^5.1.0",

@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import Cart from '../models/Cart.js';
 import Product from '../models/Product.js';
 import { asyncHandler, httpError } from '../utils/http.js';
+import { findProductVariant } from '../utils/productVariants.js';
 
 async function populatedCart(userId) {
   let cart = await Cart.findOne({ user: userId });
@@ -16,7 +17,9 @@ async function validateItem(productId, size, colour, quantity) {
   if (!product) throw httpError(404, 'This product is no longer available.');
   if (product.sizes.length && !product.sizes.includes(size)) throw httpError(400, 'Please select a valid size.');
   if (product.colours.length && !product.colours.some((c) => c.name.toLowerCase() === String(colour).toLowerCase())) throw httpError(400, 'Please select a valid colour.');
-  if (product.stock < quantity) throw httpError(409, 'The selected quantity is not currently available.');
+  const variant = findProductVariant(product, size, colour);
+  if (product.variants.length && !variant) throw httpError(409, 'The selected size and colour combination is not available.');
+  if ((variant?.stock ?? product.stock) < quantity) throw httpError(409, 'The selected quantity is not currently available.');
   return product;
 }
 export const getCart = asyncHandler(async (req, res) => res.json(cartResponse(await populatedCart(req.user._id))));
