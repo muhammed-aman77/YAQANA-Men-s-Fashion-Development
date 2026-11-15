@@ -56,7 +56,7 @@ export default function LoginPage() {
                   onChange={handleChange}
                   required
                   autoComplete="username"
-                  className="w-full border border-xora-taupe/40 bg-white px-3.5 py-2.5 text-xs focus:outline-none focus:border-xora-charcoal"
+                  className="w-full border border-xora-taupe/40 bg-white px-3.5 py-2.5 text-base leading-4 sm:text-xs focus:outline-none focus:border-xora-charcoal"
                 />
               </div>
               <div>
@@ -68,7 +68,7 @@ export default function LoginPage() {
                   onChange={handleChange}
                   required
                   autoComplete="current-password"
-                  className="w-full border border-xora-taupe/40 bg-white px-3.5 py-2.5 text-xs focus:outline-none focus:border-xora-charcoal"
+                  className="w-full border border-xora-taupe/40 bg-white px-3.5 py-2.5 text-base leading-4 sm:text-xs focus:outline-none focus:border-xora-charcoal"
                 />
               </div>
 
@@ -89,7 +89,10 @@ export default function LoginPage() {
 
             <div className="mt-6 text-xs text-xora-taupe-dark">
               Need an account?{' '}
-              <Link to="/register" className="font-medium text-xora-charcoal underline underline-offset-4">
+              <Link
+                to={redirect ? `/register?redirect=${encodeURIComponent(redirect)}` : '/register'}
+                className="font-medium text-xora-charcoal underline underline-offset-4"
+              >
                 Create Account
               </Link>
             </div>

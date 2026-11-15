@@ -67,7 +67,7 @@ export default function RegisterPage() {
                   value={form.name}
                   onChange={handleChange}
                   required
-                  className="w-full border border-xora-taupe/40 bg-white px-3.5 py-2.5 text-xs focus:outline-none focus:border-xora-charcoal"
+                  className="w-full border border-xora-taupe/40 bg-white px-3.5 py-2.5 text-base leading-4 sm:text-xs focus:outline-none focus:border-xora-charcoal"
                 />
               </div>
               <div>
@@ -78,7 +78,7 @@ export default function RegisterPage() {
                   value={form.email}
                   onChange={handleChange}
                   required
-                  className="w-full border border-xora-taupe/40 bg-white px-3.5 py-2.5 text-xs focus:outline-none focus:border-xora-charcoal"
+                  className="w-full border border-xora-taupe/40 bg-white px-3.5 py-2.5 text-base leading-4 sm:text-xs focus:outline-none focus:border-xora-charcoal"
                 />
               </div>
               <div>
@@ -90,7 +90,7 @@ export default function RegisterPage() {
                   onChange={handleChange}
                   required
                   minLength={6}
-                  className="w-full border border-xora-taupe/40 bg-white px-3.5 py-2.5 text-xs focus:outline-none focus:border-xora-charcoal"
+                  className="w-full border border-xora-taupe/40 bg-white px-3.5 py-2.5 text-base leading-4 sm:text-xs focus:outline-none focus:border-xora-charcoal"
                 />
               </div>
               <div>
@@ -101,7 +101,7 @@ export default function RegisterPage() {
                   value={form.confirmPassword}
                   onChange={handleChange}
                   required
-                  className="w-full border border-xora-taupe/40 bg-white px-3.5 py-2.5 text-xs focus:outline-none focus:border-xora-charcoal"
+                  className="w-full border border-xora-taupe/40 bg-white px-3.5 py-2.5 text-base leading-4 sm:text-xs focus:outline-none focus:border-xora-charcoal"
                 />
               </div>
 
@@ -112,7 +112,10 @@ export default function RegisterPage() {
 
             <div className="mt-6 text-xs text-xora-taupe-dark">
               Already registered?{' '}
-              <Link to="/login" className="font-medium text-xora-charcoal underline underline-offset-4">
+              <Link
+                to={redirect !== '/account' ? `/login?redirect=${encodeURIComponent(redirect)}` : '/login'}
+                className="font-medium text-xora-charcoal underline underline-offset-4"
+              >
                 Sign in
               </Link>
             </div>

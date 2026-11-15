@@ -22,6 +22,9 @@ export default function Home() {
 
       <NewsletterSignup placement="home" />
 
+      {/* New Arrivals product carousel */}
+      <HomepageNewArrivalsRack />
+
       {/* 4. SHOP BY CATEGORY */}
       <section className="bg-xora-sand/50 py-12 sm:py-14 px-4 sm:px-6 lg:px-8 border-y border-xora-taupe/20">
         <div className="max-w-7xl mx-auto">
@@ -61,9 +64,6 @@ export default function Home() {
           </div>
         </div>
       </section>
-
-      {/* New Arrivals product carousel */}
-      <HomepageNewArrivalsRack />
 
       {/* Standard product collection remains separate from the rack. */}
       <HomepageCollection />
