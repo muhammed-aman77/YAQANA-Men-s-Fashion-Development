@@ -66,10 +66,22 @@ export function requireCsrfForCookieAuth(req, _res, next) {
 
 export const requireAuth = [optionalAuth, requireCsrfForCookieAuth, (req, _res, next) => {
   if (!req.user) return next(httpError(401, 'Please sign in to continue.', 'AUTHENTICATION_REQUIRED'));
+  if (['support_agent', 'admin', 'owner'].includes(req.user.role) && !req.session?.mfaVerifiedAt) {
+    return next(httpError(403, 'Administrative accounts must complete MFA sign-in.', 'ADMIN_MFA_REQUIRED'));
+  }
   next();
 }];
 
 export const requireAdmin = (req, _res, next) => {
-  if (req.user?.role !== 'admin') return next(httpError(403, 'Administrator access is required.', 'ADMIN_REQUIRED'));
+  if (!['admin', 'owner'].includes(req.user?.role)) return next(httpError(403, 'Administrator access is required.', 'ADMIN_REQUIRED'));
+  if (!req.session?.mfaVerifiedAt) return next(httpError(403, 'Administrative accounts must complete MFA sign-in.', 'ADMIN_MFA_REQUIRED'));
+  next();
+};
+
+export const requireRecentAdminReauthentication = (req, _res, next) => {
+  const reauthenticatedAt = req.session?.mfaReauthenticatedAt;
+  if (!reauthenticatedAt || Date.now() - new Date(reauthenticatedAt).getTime() > 5 * 60_000) {
+    return next(httpError(403, 'Reauthenticate with your password and authenticator before this action.', 'ADMIN_REAUTHENTICATION_REQUIRED'));
+  }
   next();
 };

@@ -20,6 +20,8 @@
     "seed:categories": "node scripts/seedCategories.js",
     "seed:dummy-catalog": "node scripts/seedDummyCatalog.js",
     "seed:local-dummy-catalog": "node scripts/seedLocalDummyCatalog.js",
+    "seed:local-demo-catalog": "node scripts/seedLocalDemoCatalog.js",
+    "reset:local-demo-catalog": "node scripts/resetLocalDemoCatalog.js",
     "remove:dummy-catalog": "node scripts/removeDummyCatalog.js"
   },
   "dependencies": {

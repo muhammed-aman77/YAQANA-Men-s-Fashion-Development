@@ -11,6 +11,7 @@ const stagingEnvironment = {
   TRUST_PROXY: 'true',
   AUTH_COOKIE_ENABLED: 'true',
   REQUIRE_MONGO_TRANSACTIONS: 'true',
+  MFA_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64'),
   MEDIA_STORAGE: 'cloudinary',
   CLOUDINARY_CLOUD_NAME: 'yaqana-staging',
   CLOUDINARY_API_KEY: '123456789012345',
@@ -43,5 +44,16 @@ test('cookie authentication cannot use an insecure staging frontend origin', () 
   assert.throws(
     () => parseEnvironment({ ...stagingEnvironment, FRONTEND_ORIGINS: 'http://yaqana-preview.vercel.app' }),
     /HTTPS/i
+  );
+});
+
+test('production configuration rejects a missing or malformed MFA encryption key', () => {
+  assert.throws(
+    () => parseEnvironment({ ...stagingEnvironment, MFA_ENCRYPTION_KEY: '' }),
+    /MFA_ENCRYPTION_KEY.*base64.*32-byte/i
+  );
+  assert.throws(
+    () => parseEnvironment({ ...stagingEnvironment, MFA_ENCRYPTION_KEY: 'not-a-key' }),
+    /MFA_ENCRYPTION_KEY.*base64.*32-byte/i
   );
 });

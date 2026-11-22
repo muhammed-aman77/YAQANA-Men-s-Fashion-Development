@@ -1,7 +1,7 @@
 import Product from '../models/Product.js';
 import StockMovement from '../models/StockMovement.js';
 import { httpError } from '../utils/http.js';
-import { buildVariantStockAdjustment } from '../utils/variantInventory.js';
+import { buildVariantStockAdjustment, calculateStockAfterAdjustment } from '../utils/variantInventory.js';
 
 const findProductForAdjustment = ({ sku, productId }) => sku
   ? Product.findOne({ 'variants.sku': sku })
@@ -61,15 +61,22 @@ async function applyPendingMovement(movement) {
   }
 
   const stockBefore = variant?.stock ?? product.stock;
-  const stockAfter = stockBefore + change.quantityDelta;
-  if (!Number.isSafeInteger(stockBefore) || !Number.isSafeInteger(stockAfter) || stockAfter < 0) {
+  let stockAfter;
+  try {
+    stockAfter = calculateStockAfterAdjustment(
+      stockBefore,
+      change.quantityDelta,
+      variant?.reservedQuantity ?? 0
+    );
+  } catch (error) {
     change.productName = product.name;
     change.stockBefore = stockBefore;
     change.stockAfter = stockBefore;
-    movement.status = 'rejected';
-    await movement.save();
-    await releaseInventoryLock(productId, movement._id);
-    throw httpError(409, `The adjustment would make stock invalid for ${change.sku || product.name}.`);
+    return rejectMovement(
+      movement,
+      productId,
+      httpError(409, `${error.message} (${change.sku || product.name}).`)
+    );
   }
 
   change.productName = product.name;
@@ -98,7 +105,16 @@ async function applyPendingMovement(movement) {
       stock: change.quantityDelta < 0
         ? { $gte: Math.abs(change.quantityDelta) }
         : { $lte: Number.MAX_SAFE_INTEGER - change.quantityDelta },
-      variants: { $elemMatch: { sku: variant.sku, stock: variantStock } }
+      variants: {
+        $elemMatch: {
+          sku: variant.sku,
+          stock: variantStock,
+          $or: [
+            { reservedQuantity: { $lte: stockAfter } },
+            { reservedQuantity: { $exists: false } }
+          ]
+        }
+      }
     };
     update = {
       ...mutation.update,
@@ -133,7 +149,18 @@ async function applyPendingMovement(movement) {
   return { movement, replayed: false };
 }
 
-export async function applySingleInventoryAdjustment({ adjustment, reason, idempotencyKey, requestHash, performedBy }) {
+export async function applySingleInventoryAdjustment({
+  adjustment,
+  reason,
+  idempotencyKey,
+  requestHash,
+  performedBy,
+  type = 'manual',
+  reference = '',
+  notes = '',
+  enhancedConfirmed = false,
+  approvalId = null
+}) {
   let movement = await StockMovement.findOne({ idempotencyKey }).select('+requestHash');
   if (movement && movement.requestHash !== requestHash) {
     throw httpError(409, 'This inventory request key was already used for a different adjustment.', 'IDEMPOTENCY_KEY_REUSED');
@@ -168,8 +195,12 @@ export async function applySingleInventoryAdjustment({ adjustment, reason, idemp
           stockAfter: 0
         }],
         reason,
-        type: 'manual',
+        type,
         status: 'pending',
+        enhancedConfirmed,
+        approvalId,
+        reference,
+        notes,
         idempotencyKey,
         requestHash,
         performedBy

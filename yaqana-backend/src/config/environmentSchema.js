@@ -2,9 +2,11 @@ import { z } from 'zod';
 
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+  HOST: z.string().optional(),
   PORT: z.coerce.number().int().min(1).max(65535).default(5000),
   MONGODB_URI: z.string().min(1, 'MONGODB_URI is required'),
   JWT_SECRET: z.string().min(32, 'JWT_SECRET must be at least 32 characters'),
+  MFA_ENCRYPTION_KEY: z.string().default(''),
   JWT_TTL_SECONDS: z.coerce.number().int().min(300).max(2592000).default(86400),
   LEGACY_CURRENCY_FACTOR: z.coerce.number().positive().default(83),
   LEGACY_SHIPPING_THRESHOLD: z.coerce.number().nonnegative().default(200),
@@ -39,6 +41,18 @@ const schema = z.object({
 
   if (config.NODE_ENV === 'production' && !config.AUTH_COOKIE_ENABLED) {
     context.addIssue({ code: 'custom', path: ['AUTH_COOKIE_ENABLED'], message: 'Production requires cookie authentication.' });
+  }
+  if (config.NODE_ENV === 'production') {
+    const encryptionKey = Buffer.from(config.MFA_ENCRYPTION_KEY, 'base64');
+    const isValidEncryptionKey = encryptionKey.length === 32 &&
+      encryptionKey.toString('base64').replace(/=+$/u, '') === config.MFA_ENCRYPTION_KEY.replace(/=+$/u, '');
+    if (!isValidEncryptionKey) {
+      context.addIssue({
+        code: 'custom',
+        path: ['MFA_ENCRYPTION_KEY'],
+        message: 'Production requires MFA_ENCRYPTION_KEY to be a base64-encoded 32-byte key.'
+      });
+    }
   }
   if (config.NODE_ENV === 'production' && !config.REQUIRE_MONGO_TRANSACTIONS) {
     context.addIssue({ code: 'custom', path: ['REQUIRE_MONGO_TRANSACTIONS'], message: 'Production requires MongoDB transaction support.' });

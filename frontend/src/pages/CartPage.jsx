@@ -35,6 +35,14 @@ export default function CartPage() {
     }
   };
 
+  const handleUpdateQuantity = async (itemId, quantity) => {
+    setCartError('');
+    const result = await updateQuantity(itemId, quantity);
+    if (result && !result.success) {
+      setCartError(result.message || 'Could not update this item in your bag. Please try again.');
+    }
+  };
+
   return (
     <div className="bg-xora-cream min-h-screen text-xora-charcoal py-10 sm:py-16">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -81,6 +89,9 @@ export default function CartPage() {
 
         {activeTab === 'cart' ? (
           <div id="cart-page-cart-panel" role="tabpanel" aria-labelledby="cart-page-cart-tab">
+            {cartError && (
+              <p className="mb-5 text-sm text-red-700" role="alert">{cartError}</p>
+            )}
             {items.length === 0 ? (
               <div className="flex min-h-[40vh] items-center justify-center">
                 <EmptyState
@@ -144,7 +155,7 @@ export default function CartPage() {
                     <div className="flex items-center border border-xora-taupe/40 bg-white">
                       <button
                         type="button"
-                        onClick={() => updateQuantity(item._id, item.quantity - 1)}
+                        onClick={() => handleUpdateQuantity(item._id, item.quantity - 1)}
                         className="px-2.5 py-1 text-xora-charcoal hover:bg-xora-sand/50"
                       >
                         <Minus className="w-3 h-3" />
@@ -154,8 +165,10 @@ export default function CartPage() {
                       </span>
                       <button
                         type="button"
-                        onClick={() => updateQuantity(item._id, item.quantity + 1)}
+                        onClick={() => handleUpdateQuantity(item._id, item.quantity + 1)}
                         className="px-2.5 py-1 text-xora-charcoal hover:bg-xora-sand/50"
+                        aria-label={`Increase quantity of ${item.name}`}
+                        disabled={!Number.isSafeInteger(item.stock) || item.quantity >= item.stock}
                       >
                         <Plus className="w-3 h-3" />
                       </button>

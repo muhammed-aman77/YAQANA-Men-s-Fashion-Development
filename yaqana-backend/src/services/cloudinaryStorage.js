@@ -1,6 +1,6 @@
 import { v2 as cloudinary } from 'cloudinary';
 import { env } from '../config/env.js';
-import { createCloudinaryImageStore } from '../utils/cloudinaryUpload.js';
+import { createCloudinaryImageStore, deleteCloudinaryImageUrl } from '../utils/cloudinaryUpload.js';
 
 cloudinary.config({
   cloud_name: env.CLOUDINARY_CLOUD_NAME,
@@ -12,4 +12,9 @@ cloudinary.config({
 export const uploadProductImage = createCloudinaryImageStore(
   cloudinary.uploader,
   env.MEDIA_STORAGE === 'cloudinary'
+);
+
+export const deleteProductImage = (imageUrl) => deleteCloudinaryImageUrl(
+  imageUrl,
+  env.MEDIA_STORAGE === 'cloudinary' ? cloudinary.uploader : null
 );

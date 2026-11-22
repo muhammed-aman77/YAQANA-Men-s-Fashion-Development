@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import PasswordInput from '../components/PasswordInput.jsx';
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -24,7 +25,7 @@ export default function LoginPage() {
 
     const result = await login(form.email, form.password, rememberMe);
     if (result.success) {
-      const destination = redirect || (result.user?.role === 'admin' ? '/admin' : '/account');
+      const destination = redirect || '/account';
       navigate(destination, { replace: true });
       return;
     }
@@ -60,9 +61,9 @@ export default function LoginPage() {
                 />
               </div>
               <div>
-                <label className="block text-[11px] uppercase tracking-luxury font-medium text-xora-charcoal mb-1">Password</label>
-                <input
-                  type="password"
+                <label htmlFor="login-password" className="block text-[11px] uppercase tracking-luxury font-medium text-xora-charcoal mb-1">Password</label>
+                <PasswordInput
+                  id="login-password"
                   name="password"
                   value={form.password}
                   onChange={handleChange}
@@ -95,6 +96,10 @@ export default function LoginPage() {
               >
                 Create Account
               </Link>
+            </div>
+            <div className="mt-3 text-xs text-xora-taupe-dark">
+              Staff member?{' '}
+              <Link to="/admin/login" className="font-medium text-xora-charcoal underline underline-offset-4">Administrator sign-in</Link>
             </div>
         </div>
       </div>

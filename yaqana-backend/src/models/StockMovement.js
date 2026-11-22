@@ -14,9 +14,13 @@ const changeSchema = new mongoose.Schema({
 const schema = new mongoose.Schema({
   changes: { type: [changeSchema], required: true, validate: (changes) => changes.length > 0 },
   reason: { type: String, required: true, trim: true, minlength: 5, maxlength: 300 },
-  type: { type: String, enum: ['manual', 'order', 'order_cancel', 'purchase_receipt', 'return'], required: true },
+  type: { type: String, enum: ['manual', 'opening_stock', 'correction', 'damaged', 'lost', 'restock', 'order', 'order_cancel', 'purchase_receipt', 'return'], required: true },
   status: { type: String, enum: ['pending', 'applying', 'applied', 'rejected'], default: 'applied' },
+  enhancedConfirmed: { type: Boolean, default: false },
+  approvalId: { type: mongoose.Schema.Types.ObjectId, ref: 'InventoryApproval', default: null },
   referenceId: { type: mongoose.Schema.Types.ObjectId, default: null },
+  reference: { type: String, trim: true, maxlength: 120, default: '' },
+  notes: { type: String, trim: true, maxlength: 1000, default: '' },
   idempotencyKey: { type: String, trim: true, default: undefined },
   requestHash: { type: String, select: false, default: undefined },
   performedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true }

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildSupportTicketQuery, SUPPORT_TICKET_PRIORITIES, SUPPORT_TICKET_STATUSES } from './supportCenter.js';
+import { buildSupportTicketPayload, buildSupportTicketQuery, SUPPORT_TICKET_PRIORITIES, SUPPORT_TICKET_STATUSES } from './supportCenter.js';
 
 test('support ticket filters omit unselected values and normalize search text', () => {
   assert.deepEqual(buildSupportTicketQuery({
@@ -30,4 +30,23 @@ test('support filters cover the agreed ticket workflow and priorities', () => {
     'Closed'
   ]);
   assert.deepEqual(SUPPORT_TICKET_PRIORITIES, ['Low', 'Normal', 'High', 'Urgent']);
+});
+
+test('contact form builds a bounded authenticated support ticket payload', () => {
+  assert.deepEqual(buildSupportTicketPayload({
+    name: '  Riya  ',
+    email: '  riya@example.test ',
+    message: '  Please help with my delivery.  ',
+    category: 'Delivery'
+  }), {
+    subject: 'Contact: Delivery',
+    message: 'Name: Riya\nEmail: riya@example.test\n\nPlease help with my delivery.',
+    priority: 'Normal'
+  });
+  assert.throws(() => buildSupportTicketPayload({
+    name: '',
+    email: 'invalid',
+    message: 'short',
+    category: 'Delivery'
+  }), /contact/i);
 });

@@ -15,6 +15,7 @@ import { useAuth } from '../context/AuthContext';
 import { useWishlist } from '../context/WishlistContext';
 import { addressService, authService, orderService } from '../services/api';
 import LoadingSpinner from '../components/LoadingSpinner';
+import PasswordInput from '../components/PasswordInput.jsx';
 import { formatInr } from '../utils/currency';
 import { indianStatesAndTerritories } from '../utils/india';
 import { getProductImage } from '../utils/productImage';
@@ -373,11 +374,11 @@ export default function AccountPage() {
                 <form onSubmit={handlePasswordChange} className="mt-6 space-y-4">
                   <div>
                     <label className="block text-[11px] uppercase tracking-luxury font-medium text-xora-charcoal mb-1">Current Password</label>
-                    <input type="password" value={passwordForm.currentPassword} onChange={(e) => setPasswordForm({ ...passwordForm, currentPassword: e.target.value })} className="w-full border border-xora-taupe/40 bg-white px-3.5 py-2.5 text-base leading-4 sm:text-xs focus:outline-none focus:border-xora-charcoal" />
+                    <PasswordInput id="account-current-password" autoComplete="current-password" value={passwordForm.currentPassword} onChange={(e) => setPasswordForm({ ...passwordForm, currentPassword: e.target.value })} className="w-full border border-xora-taupe/40 bg-white px-3.5 py-2.5 text-base leading-4 sm:text-xs focus:outline-none focus:border-xora-charcoal" />
                   </div>
                   <div>
                     <label className="block text-[11px] uppercase tracking-luxury font-medium text-xora-charcoal mb-1">New Password</label>
-                    <input type="password" value={passwordForm.newPassword} onChange={(e) => setPasswordForm({ ...passwordForm, newPassword: e.target.value })} className="w-full border border-xora-taupe/40 bg-white px-3.5 py-2.5 text-base leading-4 sm:text-xs focus:outline-none focus:border-xora-charcoal" />
+                    <PasswordInput id="account-new-password" autoComplete="new-password" value={passwordForm.newPassword} onChange={(e) => setPasswordForm({ ...passwordForm, newPassword: e.target.value })} className="w-full border border-xora-taupe/40 bg-white px-3.5 py-2.5 text-base leading-4 sm:text-xs focus:outline-none focus:border-xora-charcoal" />
                   </div>
                   <button type="submit" className="btn-luxury">Update Password</button>
                 </form>

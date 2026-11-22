@@ -1,26 +1,36 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { cartService } from '../services/api';
 import { useAuth } from './AuthContext';
 import { getProductImage } from '../utils/productImage';
-import { getColourGallery, getVariantStock } from '../utils/productVariants';
+import {
+  getVariantAvailability,
+  getVariantImages,
+  getVariantPrice,
+  getVariantStatus
+} from '../utils/productVariants';
+import { getCartQuantityError } from '../utils/cartStock';
 
 const CartContext = createContext();
 
 const formatCartItems = (items = []) => items
   .filter((item) => item.product)
-  .map((item) => ({
-    _id: item._id,
-    productId: item.product._id,
-    name: item.product.name,
-    price: item.product.discountPrice || item.product.price,
-    originalPrice: item.product.price,
-    image: getProductImage({ ...item.product, images: getColourGallery(item.product, item.colour) }),
-    category: item.product.category,
-    size: item.size,
-    colour: item.colour,
-    quantity: item.quantity,
-    stock: getVariantStock(item.product, item.size, item.colour)
-  }));
+  .map((item) => {
+    const price = getVariantPrice(item.product, item.size, item.colour);
+    return {
+      _id: item._id,
+      productId: item.product._id,
+      name: item.product.name,
+      price: price.price,
+      originalPrice: price.originalPrice,
+      image: getProductImage({ ...item.product, images: getVariantImages(item.product, item.size, item.colour) }),
+      category: item.product.category,
+      size: item.size,
+      colour: item.colour,
+      quantity: item.quantity,
+      stock: getVariantAvailability(item.product, item.size, item.colour),
+      status: getVariantStatus(item.product, item.size, item.colour)
+    };
+  });
 
 export const CartProvider = ({ children }) => {
   const { user, isAuthenticated, loading: authLoading } = useAuth();
@@ -32,6 +42,12 @@ export const CartProvider = ({ children }) => {
       return [];
     }
   });
+  const itemsRef = useRef(items);
+  const setCartItems = (update) => {
+    const nextItems = typeof update === 'function' ? update(itemsRef.current) : update;
+    itemsRef.current = nextItems;
+    setItems(nextItems);
+  };
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [cartOwner, setCartOwner] = useState(null);
@@ -43,7 +59,7 @@ export const CartProvider = ({ children }) => {
     if (isAuthenticated) {
       loadBackendCart();
     } else {
-      setItems((currentItems) => currentItems.filter((item) => String(item._id).startsWith('temp-')));
+      setCartItems((currentItems) => currentItems.filter((item) => String(item._id).startsWith('temp-')));
       setCartOwner('guest');
     }
   }, [isAuthenticated, authLoading, user?._id]);
@@ -75,14 +91,14 @@ export const CartProvider = ({ children }) => {
           }))
         });
         if (syncRes.data.success && syncRes.data.cart?.items) {
-          setItems(formatCartItems(syncRes.data.cart.items));
+          setCartItems(formatCartItems(syncRes.data.cart.items));
           return;
         }
       }
 
       const res = await cartService.getCart();
       if (res.data.success && res.data.cart?.items) {
-        setItems(formatCartItems(res.data.cart.items));
+          setCartItems(formatCartItems(res.data.cart.items));
       }
     } catch (err) {
       console.warn('Failed to fetch user cart from backend:', err);
@@ -92,19 +108,36 @@ export const CartProvider = ({ children }) => {
     }
   };
 
-  const addToCart = async (product, size, colour, quantity = 1) => {
+  const addToCart = async (product, size, colour, quantity = 1, { openCart = true } = {}) => {
     const selectedSize = size || (product.sizes && product.sizes[0]) || 'N/A';
     const selectedColour =
       colour || (product.colours && product.colours[0]?.name) || 'Default';
-    const selectedStock = getVariantStock(product, selectedSize, selectedColour);
-    if (quantity > selectedStock) return { success: false, message: 'The selected quantity is not currently available.' };
-    const effectivePrice = product.discountPrice || product.price;
-    const image = getProductImage({ ...product, images: getColourGallery(product, selectedColour) });
+    const selectedStock = getVariantAvailability(product, selectedSize, selectedColour);
+    const selectedStatus = getVariantStatus(product, selectedSize, selectedColour);
+    const existingQuantity = itemsRef.current
+      .filter((item) => String(item.productId) === String(product._id) && item.size === selectedSize && item.colour === selectedColour)
+      .reduce((total, item) => total + item.quantity, 0);
+    const quantityError = getCartQuantityError({
+      currentQuantity: existingQuantity,
+      addQuantity: quantity,
+      availableStock: selectedStock,
+      status: selectedStatus
+    });
+    if (quantityError) {
+      return {
+        success: false,
+        message: quantityError === 'STOCK_CHANGED'
+          ? 'The available stock is lower than your requested quantity. Update your bag and try again.'
+          : 'This size and colour combination is no longer available.'
+      };
+    }
+    const selectedPrice = getVariantPrice(product, selectedSize, selectedColour);
+    const image = getProductImage({ ...product, images: getVariantImages(product, selectedSize, selectedColour) });
 
-    const addLocalItem = () => setItems((prev) => {
+    const addLocalItem = () => setCartItems((prev) => {
       const existingIdx = prev.findIndex(
         (item) =>
-          item.productId === product._id &&
+          String(item.productId) === String(product._id) &&
           item.size === selectedSize &&
           item.colour === selectedColour
       );
@@ -123,14 +156,15 @@ export const CartProvider = ({ children }) => {
             _id: `temp-${Date.now()}-${Math.random()}`,
             productId: product._id,
             name: product.name,
-            price: effectivePrice,
-            originalPrice: product.price,
+            price: selectedPrice.price,
+            originalPrice: selectedPrice.originalPrice,
             image,
             category: product.category,
             size: selectedSize,
             colour: selectedColour,
             quantity,
-            stock: selectedStock
+            stock: selectedStock,
+            status: selectedStatus
           }
         ];
       }
@@ -146,7 +180,7 @@ export const CartProvider = ({ children }) => {
           quantity
         });
         if (res.data.success && res.data.cart?.items) {
-          setItems(formatCartItems(res.data.cart.items));
+        setCartItems(formatCartItems(res.data.cart.items));
         } else {
           return { success: false, message: res.data.message || 'Could not add this item to your bag.' };
         }
@@ -157,7 +191,7 @@ export const CartProvider = ({ children }) => {
       addLocalItem();
     }
 
-    setIsCartOpen(true);
+    if (openCart) setIsCartOpen(true);
     return { success: true };
   };
 
@@ -171,18 +205,36 @@ export const CartProvider = ({ children }) => {
       try {
         const res = await cartService.updateQuantity({ itemId, quantity });
         if (res.data.success && res.data.cart?.items) {
-          setItems(formatCartItems(res.data.cart.items));
+          setCartItems(formatCartItems(res.data.cart.items));
+        } else {
+          await loadBackendCart();
+          return {
+            success: false,
+            message: res.data.message || 'Could not update this item in your bag.'
+          };
         }
       } catch (err) {
-        console.warn('Failed to update quantity on backend', err);
-        await loadBackendCart();
+        const message = err.response?.data?.message || 'Could not update this item in your bag. Check your connection and try again.';
+        try {
+          await loadBackendCart();
+        } catch {
+          // Keep the actionable update failure for the caller even if refresh also fails.
+        }
+        return { success: false, message };
       }
       return;
     }
 
-    setItems((prev) =>
-      prev.map((item) => (item._id === itemId ? { ...item, quantity } : item))
-    );
+    const item = itemsRef.current.find((entry) => entry._id === itemId);
+    if (!item) return { success: false, message: 'This item is no longer in your bag.' };
+    const quantityError = getCartQuantityError({
+      desiredQuantity: quantity,
+      availableStock: item.stock,
+      status: item.status
+    });
+    if (quantityError) return { success: false, message: 'The available stock changed. Reduce the quantity or refresh your bag.' };
+    setCartItems((prev) => prev.map((entry) => (entry._id === itemId ? { ...entry, quantity } : entry)));
+    return { success: true };
   };
 
   const removeFromCart = async (itemId) => {
@@ -190,7 +242,7 @@ export const CartProvider = ({ children }) => {
       try {
         const res = await cartService.removeFromCart(itemId);
         if (res.data.success && res.data.cart?.items) {
-          setItems(formatCartItems(res.data.cart.items));
+          setCartItems(formatCartItems(res.data.cart.items));
         }
       } catch (err) {
         console.warn('Failed to remove item on backend', err);
@@ -199,11 +251,11 @@ export const CartProvider = ({ children }) => {
       return;
     }
 
-    setItems((prev) => prev.filter((item) => item._id !== itemId));
+    setCartItems((prev) => prev.filter((item) => item._id !== itemId));
   };
 
   const clearCart = () => {
-    setItems([]);
+    setCartItems([]);
     localStorage.removeItem('xora_local_cart');
   };
 

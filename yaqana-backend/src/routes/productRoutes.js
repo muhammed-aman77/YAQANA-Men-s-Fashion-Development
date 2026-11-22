@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import {
-  getProducts, getProductById, createProduct, updateProduct, archiveProduct,
+  getProducts, getProductById, createProduct, updateProduct, archiveProduct, permanentlyDeleteProduct,
   getCollections, createCollection, renameCollection, removeCollection
 } from '../controllers/catalogController.js';
 import { optionalAuth, requireAuth, requireAdmin } from '../middleware/auth.js';
@@ -13,5 +13,6 @@ router.delete('/collections/:name', requireAuth, requireAdmin, removeCollection)
 router.post('/', requireAuth, requireAdmin, createProduct);
 router.get('/:id', optionalAuth, getProductById);
 router.put('/:id', requireAuth, requireAdmin, updateProduct);
+router.delete('/:id/permanent', requireAuth, requireAdmin, permanentlyDeleteProduct);
 router.delete('/:id', requireAuth, requireAdmin, archiveProduct);
 export default router;

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   createCloudinaryImageStore,
   createImageUploadHandler,
+  deleteCloudinaryImageUrl,
   isValidImageSignature,
   uploadBufferToCloudinary
 } from '../src/utils/cloudinaryUpload.js';
@@ -79,6 +80,105 @@ test('uploads a validated image and returns Cloudinary secure_url', async () => 
   assert.equal(response.body.imageUrl, secureUrl);
 });
 
+test('audited image upload persists an intent before storage and a hashed completion after storage', async () => {
+  const audits = [];
+  let stored = false;
+  const auditModel = { async create(record) { audits.push(record); } };
+  const handler = createImageUploadHandler(async () => { stored = true; return secureUrl; }, { auditModel });
+  const response = createResponse();
+  const errors = [];
+  await handler({ file: { buffer: jpeg, mimetype: 'image/jpeg' }, user: { _id: 'admin-1' } }, response, (error) => errors.push(error));
+
+  assert.deepEqual(errors, []);
+  assert.equal(stored, true);
+  assert.equal(audits[0].action, 'catalog.image.upload.started');
+  assert.equal(audits[0].actor, 'admin-1');
+  assert.equal(audits[0].metadata.phase, 'intent');
+  assert.equal(audits[1].action, 'catalog.image.upload');
+  assert.equal(audits[1].metadata.phase, 'completed');
+  assert.equal(audits[1].after.referenceHash.length, 64);
+  assert.equal(JSON.stringify(audits).includes(secureUrl), false);
+});
+
+test('image upload does not contact storage when its audit intent cannot be saved', async () => {
+  let storageCalled = false;
+  const auditModel = { async create() { throw new Error('audit unavailable'); } };
+  const handler = createImageUploadHandler(async () => { storageCalled = true; return secureUrl; }, { auditModel });
+  const errors = [];
+  await handler({ file: { buffer: jpeg, mimetype: 'image/jpeg' }, user: { _id: 'admin-1' } }, createResponse(), (error) => errors.push(error));
+  assert.equal(storageCalled, false);
+  assert.match(errors[0].message, /audit unavailable/);
+});
+
+test('compensates an uploaded image when the completion audit fails', async () => {
+  const audits = [];
+  let completed = false;
+  let deletedUrl;
+  const handler = createImageUploadHandler(async () => secureUrl, {
+    deleteImage: async (url) => { deletedUrl = url; return { deleted: true }; },
+    auditModel: { async create(record) {
+      if (record.metadata.phase === 'completed') throw new Error('audit completion unavailable');
+      audits.push(record);
+      completed = true;
+    } }
+  });
+  const errors = [];
+
+  await handler({ file: { buffer: jpeg, mimetype: 'image/jpeg' }, user: { _id: 'admin-1' } }, createResponse(), (error) => errors.push(error));
+
+  assert.equal(completed, true);
+  assert.equal(deletedUrl, secureUrl);
+  assert.equal(errors.length, 1);
+  assert.match(errors[0].message, /could not be audited/i);
+  assert.equal(errors[0].message.includes(secureUrl), false);
+  assert.equal(audits[1].action, 'catalog.image.upload.compensated');
+  assert.equal(audits[1].metadata.phase, 'compensated');
+  assert.equal(audits[1].metadata.targetId.length, 64);
+  assert.equal(JSON.stringify(audits).includes(secureUrl), false);
+});
+
+test('records reconciliation when image compensation fails after completion audit failure', async () => {
+  const audits = [];
+  const handler = createImageUploadHandler(async () => secureUrl, {
+    deleteImage: async () => { throw new Error('delete unavailable'); },
+    auditModel: { async create(record) {
+      if (record.metadata.phase === 'completed') throw new Error('audit completion unavailable');
+      audits.push(record);
+    } }
+  });
+  const errors = [];
+
+  await handler({ file: { buffer: jpeg, mimetype: 'image/jpeg' }, user: { _id: 'admin-1' } }, createResponse(), (error) => errors.push(error));
+
+  assert.equal(errors.length, 1);
+  assert.equal(errors[0].code, 'IMAGE_UPLOAD_AUDIT_COMPLETION_FAILED');
+  assert.match(errors[0].message, /reconciliation/i);
+  assert.equal(audits[1].action, 'catalog.image.upload.reconciliation_required');
+  assert.equal(audits[1].metadata.phase, 'reconciliation_required');
+  assert.equal(audits[1].metadata.targetId.length, 64);
+  assert.equal(JSON.stringify(audits).includes(secureUrl), false);
+});
+
+test('audited image deletion records intent before delete and never stores the image URL', async () => {
+  const { createImageDeleteHandler } = await import('../src/utils/cloudinaryUpload.js');
+  assert.equal(typeof createImageDeleteHandler, 'function');
+  const audits = [];
+  let deletionCalled = false;
+  const handler = createImageDeleteHandler(async () => { deletionCalled = true; return { deleted: true }; }, {
+    auditModel: { async create(record) { audits.push(record); } }
+  });
+  const response = createResponse();
+  const errors = [];
+  await handler({ body: { imageUrl: secureUrl }, user: { _id: 'admin-2' } }, response, (error) => errors.push(error));
+  assert.deepEqual(errors, []);
+  assert.equal(deletionCalled, true);
+  assert.equal(audits[0].action, 'catalog.image.delete.started');
+  assert.equal(audits[0].actor, 'admin-2');
+  assert.equal(audits[0].before.referenceHash.length, 64);
+  assert.equal(audits[1].action, 'catalog.image.delete');
+  assert.equal(JSON.stringify(audits).includes(secureUrl), false);
+});
+
 test('reports Cloudinary upload failures without returning a successful response', async () => {
   const { uploader } = createUploader((_buffer, callback) => callback(new Error('provider unavailable')));
   const handler = createImageUploadHandler(createCloudinaryImageStore(uploader, true));
@@ -132,4 +232,28 @@ test('recognizes the supported image file signatures', () => {
 
   for (const [mime, buffer] of validImages) assert.equal(isValidImageSignature(mime, buffer), true);
   assert.equal(isValidImageSignature('image/gif', Buffer.from('GIF89a')), false);
+});
+
+test('deletes only Cloudinary product assets and rejects unrelated URLs', async () => {
+  const calls = [];
+  const uploader = {
+    destroy(publicId, options, callback) {
+      calls.push([publicId, options]);
+      callback(null, { result: 'ok' });
+    }
+  };
+
+  await deleteCloudinaryImageUrl(
+    'https://res.cloudinary.com/yaqana/image/upload/v1763120000/yaqana/products/photo.jpg',
+    uploader
+  );
+
+  assert.deepEqual(calls, [[
+    'yaqana/products/photo',
+    { resource_type: 'image', invalidate: true }
+  ]]);
+  await assert.rejects(
+    deleteCloudinaryImageUrl('https://example.test/photo.jpg', uploader),
+    /not a Cloudinary product image/i
+  );
 });

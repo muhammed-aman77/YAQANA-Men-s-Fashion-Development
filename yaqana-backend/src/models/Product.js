@@ -11,13 +11,25 @@ const variantSchema = new mongoose.Schema({
   size: { type: String, required: true, trim: true, maxlength: 30 },
   colour: { type: String, required: true, trim: true, maxlength: 50 },
   sku: { type: String, required: true, uppercase: true, trim: true, maxlength: 48, match: /^[A-Z0-9][A-Z0-9._-]{1,47}$/ },
-  stock: { type: Number, required: true, min: 0, validate: Number.isSafeInteger }
+  barcode: { type: String, uppercase: true, trim: true, maxlength: 128, match: /^[A-Z0-9][A-Z0-9._/-]{0,127}$/ },
+  pricePaise: { type: Number, min: 0, validate: (value) => value == null || Number.isSafeInteger(value) },
+  discountPricePaise: { type: Number, min: 0, validate: (value) => value == null || Number.isSafeInteger(value) },
+  images: { type: [String], default: [] },
+  status: { type: String, enum: ['active', 'inactive', 'discontinued'], default: 'active' },
+  stock: { type: Number, required: true, min: 0, validate: Number.isSafeInteger },
+  reorderTarget: { type: Number, default: null, min: 0, validate: (value) => value == null || Number.isSafeInteger(value) },
+  reservedQuantity: { type: Number, default: 0, min: 0, validate: Number.isSafeInteger },
+  unitCostPaise: { type: Number, default: null, min: 0, validate: (value) => value == null || Number.isSafeInteger(value) },
+  costedQuantity: { type: Number, default: 0, min: 0, validate: Number.isSafeInteger }
 }, { _id: false });
 
 const productSchema = new mongoose.Schema({
   name: { type: String, required: true, trim: true, maxlength: 200 },
   slug: { type: String, required: true, lowercase: true, trim: true, unique: true },
   description: { type: String, required: true, trim: true },
+  isDemoData: { type: Boolean, default: false, index: true },
+  demoKey: { type: String, trim: true, maxlength: 100, sparse: true, unique: true },
+  demoLabel: { type: String, trim: true, maxlength: 80, default: '' },
   shortDescription: { type: String, trim: true, maxlength: 300, default: '' },
   category: { type: String, required: true, trim: true, maxlength: 100 },
   gender: { type: String, enum: ['men', 'women', 'unisex'], default: 'men' },
@@ -48,6 +60,16 @@ const productSchema = new mongoose.Schema({
     ret.price = paiseToCatalogUnits(ret.pricePaise);
     ret.discountPrice = ret.discountPricePaise == null ? null : paiseToCatalogUnits(ret.discountPricePaise);
     ret.collection = ret.collectionName;
+    ret.variants = (ret.variants || []).map((variant) => {
+      const {
+        reservedQuantity,
+        reorderTarget,
+        unitCostPaise,
+        costedQuantity,
+        ...publicVariant
+      } = variant;
+      return publicVariant;
+    });
     delete ret.__v;
     return ret;
   } },
@@ -68,4 +90,5 @@ productSchema.index({ active: 1, gender: 1, category: 1, createdAt: -1 });
 productSchema.index({ active: 1, newArrival: 1, createdAt: -1 });
 productSchema.index({ collectionName: 1, active: 1 });
 productSchema.index({ 'variants.sku': 1 }, { unique: true, sparse: true });
+productSchema.index({ 'variants.barcode': 1 }, { unique: true, sparse: true });
 export default mongoose.model('Product', productSchema);

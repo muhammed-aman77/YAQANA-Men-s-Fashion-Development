@@ -1,10 +1,26 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import InventoryInbound from '../src/models/InventoryInbound.js';
+import InventoryPolicy from '../src/models/InventoryPolicy.js';
+import Order from '../src/models/Order.js';
 import Product from '../src/models/Product.js';
+import StockMovement from '../src/models/StockMovement.js';
 import { getInventory } from '../src/controllers/inventoryController.js';
 
 test('inventory API uses the dashboard threshold and reports real stock totals', async (t) => {
-  const originalFind = Product.find;
+  const originals = {
+    productFind: Product.find,
+    policyFindOne: InventoryPolicy.findOne,
+    inboundFind: InventoryInbound.find,
+    orderFind: Order.find,
+    orderFindOne: Order.findOne,
+    movementAggregate: StockMovement.aggregate
+  };
+  const query = (value) => ({
+    select() { return this; },
+    sort() { return this; },
+    lean: async () => value
+  });
   Product.find = () => ({
     select() { return this; },
     sort() { return this; },
@@ -30,21 +46,32 @@ test('inventory API uses the dashboard threshold and reports real stock totals',
       }
     ]
   });
-  t.after(() => { Product.find = originalFind; });
+  InventoryPolicy.findOne = () => query(null);
+  InventoryInbound.find = () => query([]);
+  Order.find = () => query([]);
+  Order.findOne = () => query(null);
+  StockMovement.aggregate = async () => [];
+  t.after(() => {
+    Product.find = originals.productFind;
+    InventoryPolicy.findOne = originals.policyFindOne;
+    InventoryInbound.find = originals.inboundFind;
+    Order.find = originals.orderFind;
+    Order.findOne = originals.orderFindOne;
+    StockMovement.aggregate = originals.movementAggregate;
+  });
 
   const response = {
     body: null,
     json(body) { this.body = body; return this; }
   };
-  await getInventory({}, response, (error) => { throw error; });
+  await getInventory({ query: {} }, response, (error) => { throw error; });
 
   assert.equal(response.body.lowStockThreshold, 10);
   assert.equal(response.body.inventory[0].status, 'low_stock');
-  assert.deepEqual(response.body.summary, {
-    totalProducts: 2,
-    stockRecords: 3,
-    unitsOnHand: 14,
-    lowStockRecords: 2,
-    outOfStockRecords: 1
-  });
+  assert.equal(response.body.summary.totalProducts, 2);
+  assert.equal(response.body.summary.stockRecords, 3);
+  assert.equal(response.body.summary.unitsOnHand, 14);
+  assert.equal(response.body.summary.availableUnits, 14);
+  assert.equal(response.body.summary.lowStockRecords, 2);
+  assert.equal(response.body.summary.outOfStockRecords, 1);
 });

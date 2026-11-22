@@ -56,6 +56,12 @@ export default function OrderConfirmationPage() {
               <span>Subtotal</span>
               <span className="font-medium">{formatInr(order.subtotal)}</span>
             </div>
+            {order.discount > 0 && (
+              <div className="flex flex-col gap-1 sm:flex-row sm:justify-between sm:gap-4">
+                <span>Product discount</span>
+                <span className="font-medium">−{formatInr(order.discount)}</span>
+              </div>
+            )}
             <div className="flex flex-col gap-1 sm:flex-row sm:justify-between sm:gap-4">
               <span>Shipping</span>
               <span className="font-medium">{order.shippingFee === 0 ? 'Complimentary' : formatInr(order.shippingFee)}</span>
@@ -92,7 +98,15 @@ export default function OrderConfirmationPage() {
                       <p className="font-medium break-words">{item.name}</p>
                       <p className="text-xora-taupe-dark mt-1">Qty {item.quantity} · Size {item.size} · {item.colour}</p>
                     </div>
-                    <span className="font-medium flex-shrink-0">{formatInr(item.price * item.quantity)}</span>
+                    <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                      {item.originalPrice > item.price && (
+                        <span className="text-[10px] text-xora-taupe-dark line-through">
+                          <span className="sr-only">Original price </span>
+                          {formatInr(item.originalPrice * item.quantity)}
+                        </span>
+                      )}
+                      <span className="font-medium">{formatInr(item.price * item.quantity)}</span>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -111,6 +125,12 @@ export default function OrderConfirmationPage() {
                 ].filter(Boolean).join(', ')}
               </span>
             </div>
+            {order.shippingAddress.email && (
+              <div className="flex flex-col gap-1 sm:flex-row sm:justify-between sm:gap-4">
+                <span>Delivery email</span>
+                <span className="font-medium break-words sm:text-right">{order.shippingAddress.email}</span>
+              </div>
+            )}
           </div>
         )}
 

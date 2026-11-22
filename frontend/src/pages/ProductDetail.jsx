@@ -1,10 +1,20 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { Heart, ShoppingBag, Truck, RefreshCw, ShieldCheck, ChevronRight, Check, X } from 'lucide-react';
 import { productService } from '../services/api';
 import { formatInr } from '../utils/currency';
 import { getProductImage, getProductImages, getCategoryImage, PRODUCT_IMAGE_FALLBACK } from '../utils/productImage';
-import { getColourGallery, getVariantStock } from '../utils/productVariants';
+import {
+  getVariantAvailability,
+  getVariantImages,
+  getVariantPrice,
+  getVariantStatus
+} from '../utils/productVariants';
+import {
+  getDemoSizesForColour,
+  isDemoVariantSelectable
+} from '../utils/demoCatalogue';
+import { addProductToCartAndCheckout } from '../utils/buyNow.js';
 import { useCart } from '../context/CartContext';
 import { useWishlist } from '../context/WishlistContext';
 import ProductCard from '../components/ProductCard';
@@ -12,6 +22,7 @@ import LoadingSpinner from '../components/LoadingSpinner';
 
 export default function ProductDetail() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const { addToCart } = useCart();
   const { toggleWishlist, isInWishlist } = useWishlist();
 
@@ -25,7 +36,7 @@ export default function ProductDetail() {
   const [activeTab, setActiveTab] = useState('details');
   const [addedNotice, setAddedNotice] = useState(false);
   const [cartError, setCartError] = useState('');
-  const [addingToCart, setAddingToCart] = useState(false);
+  const [pendingPurchase, setPendingPurchase] = useState(null);
   const [sizeGuideOpen, setSizeGuideOpen] = useState(false);
 
   useEffect(() => {
@@ -36,9 +47,14 @@ export default function ProductDetail() {
         if (res.data.success) {
           const prod = res.data.product;
           const firstColour = prod.colours?.[0]?.name || 'Default';
+          const firstColourSizes = getDemoSizesForColour(prod, firstColour);
+          const firstSize = firstColourSizes.find((size) => isDemoVariantSelectable(prod, firstColour, size))
+            || firstColourSizes[0]
+            || prod.sizes?.[0]
+            || '';
           setProduct(prod);
-          setSelectedImage(getProductImage({ ...prod, images: getColourGallery(prod, firstColour) }));
-          setSelectedSize(prod.sizes?.[0] || '');
+          setSelectedImage(getProductImage({ ...prod, images: getVariantImages(prod, firstSize, firstColour) }));
+          setSelectedSize(firstSize);
           setSelectedColour(firstColour);
           setRelatedProducts(res.data.relatedProducts || []);
         }
@@ -80,30 +96,62 @@ export default function ProductDetail() {
   }
 
   const isFavorited = isInWishlist(product._id);
-  const selectedStock = getVariantStock(product, selectedSize, selectedColour);
-  const selectedGalleryProduct = { ...product, images: getColourGallery(product, selectedColour) };
+  const selectedStock = getVariantAvailability(product, selectedSize, selectedColour);
+  const selectedVariantStatus = getVariantStatus(product, selectedSize, selectedColour);
+  const selectedPrice = getVariantPrice(product, selectedSize, selectedColour);
+  const hasSelectedPriceDiscount = selectedPrice.price < selectedPrice.originalPrice;
+  const selectedGalleryProduct = { ...product, images: getVariantImages(product, selectedSize, selectedColour) };
   const selectedImages = getProductImages(selectedGalleryProduct);
-  const isOutOfStock = selectedStock <= 0;
+  const demoSizesForColour = getDemoSizesForColour(product, selectedColour);
+  const selectedVariant = Array.isArray(product.variants)
+    ? product.variants.find((variant) =>
+      String(variant.size || '').toLowerCase() === String(selectedSize || '').toLowerCase() &&
+      String(variant.colour || '').toLowerCase() === String(selectedColour || '').toLowerCase()
+    )
+    : null;
+  const isOutOfStock = selectedVariantStatus !== 'active' || selectedStock <= 0 ||
+    (product.isDemoData && !isDemoVariantSelectable(product, selectedColour, selectedSize));
   const isLowStock = selectedStock > 0 && selectedStock <= 5;
 
   const handleColourSelection = (colour) => {
+    const nextSizes = getDemoSizesForColour(product, colour);
+    const nextSize = nextSizes.find((size) => isDemoVariantSelectable(product, colour, size))
+      || nextSizes[0]
+      || '';
     setSelectedColour(colour);
+    setSelectedSize(nextSize);
     setQuantity(1);
-    setSelectedImage(getProductImage({ ...product, images: getColourGallery(product, colour) }));
+    setSelectedImage(getProductImage({ ...product, images: getVariantImages(product, nextSize, colour) }));
   };
 
   const handleAddToCart = async () => {
-    if (isOutOfStock || addingToCart) return;
+    if (isOutOfStock || pendingPurchase) return;
     setCartError('');
-    setAddingToCart(true);
+    setPendingPurchase('cart');
     const result = await addToCart(product, selectedSize, selectedColour, quantity);
-    setAddingToCart(false);
+    setPendingPurchase(null);
     if (!result?.success) {
       setCartError(result?.message || 'Could not add this item to your bag.');
       return;
     }
     setAddedNotice(true);
     setTimeout(() => setAddedNotice(false), 2000);
+  };
+
+  const handleBuyNow = async () => {
+    if (isOutOfStock || pendingPurchase) return;
+    setCartError('');
+    setPendingPurchase('buyNow');
+    const result = await addProductToCartAndCheckout({
+      addToCart,
+      navigate,
+      product,
+      size: selectedSize,
+      colour: selectedColour,
+      quantity
+    });
+    setPendingPurchase(null);
+    if (!result?.success) setCartError(result?.message || 'Could not add this item to your cart.');
   };
 
   return (
@@ -136,7 +184,7 @@ export default function ProductDetail() {
                     onClick={() => setSelectedImage(img)}
                     className={`w-16 h-20 flex-shrink-0 rounded-xs overflow-hidden border-2 transition-all ${
                       selectedImage === img
-                        ? 'border-xora-charcoal scale-95'
+                      ? 'border-[#6a5543] scale-95'
                         : 'border-transparent opacity-70 hover:opacity-100'
                     }`}
                   >
@@ -163,7 +211,7 @@ export default function ProductDetail() {
                   }
                 }}
               />
-              {product.discountPrice && (
+              {hasSelectedPriceDiscount && (
                 <span className="absolute top-4 left-4 bg-xora-charcoal text-white text-xs uppercase tracking-widest px-3 py-1 font-medium">
                   Privilege Sale
                 </span>
@@ -183,27 +231,33 @@ export default function ProductDetail() {
 
               {/* Pricing */}
               <div className="flex items-baseline space-x-3 mt-3">
-                {product.discountPrice ? (
+                {hasSelectedPriceDiscount ? (
                   <>
                     <span className="text-xl sm:text-2xl font-semibold text-xora-charcoal">
-                      {formatInr(product.discountPrice)}
+                      {formatInr(selectedPrice.price)}
                     </span>
                     <span className="text-sm text-xora-taupe-dark line-through">
-                      {formatInr(product.price)}
+                      {formatInr(selectedPrice.originalPrice)}
                     </span>
                     <span className="text-xs text-emerald-800 font-medium bg-emerald-50 px-2 py-0.5 rounded">
-                      Save {formatInr(product.price - product.discountPrice)}
+                      Save {formatInr(selectedPrice.originalPrice - selectedPrice.price)}
                     </span>
                   </>
                 ) : (
                   <span className="text-xl sm:text-2xl font-semibold text-xora-charcoal">
-                    {formatInr(product.price)}
+                    {formatInr(selectedPrice.price)}
                   </span>
                 )}
               </div>
             </div>
 
             {/* Description */}
+            {product.isDemoData && (
+              <div className="border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] text-amber-900" role="note">
+                <strong>DEMO CATALOGUE</strong> — fictional product, price and stock data.
+                {selectedVariant?.sku && <span className="ml-2 font-mono">SKU {selectedVariant.sku}</span>}
+              </div>
+            )}
             <p className="text-xs sm:text-sm text-xora-taupe-dark leading-relaxed font-light">
               {product.description}
             </p>
@@ -223,7 +277,7 @@ export default function ProductDetail() {
                       type="button"
                       onClick={() => handleColourSelection(col.name)}
                       className={`group relative p-1 rounded-full border-2 transition-all ${
-                        selectedColour === col.name ? 'border-xora-charcoal' : 'border-transparent'
+                        selectedColour === col.name ? 'border-[#6a5543]' : 'border-transparent'
                       }`}
                       title={col.name}
                     >
@@ -255,19 +309,26 @@ export default function ProductDetail() {
                   </button>
                 </div>
                 <div className="grid grid-cols-5 gap-2">
-                  {product.sizes.map((sz) => (
+                  {demoSizesForColour.map((sz) => (
                     <button
                       key={sz}
                       type="button"
+                      disabled={product.isDemoData && !isDemoVariantSelectable(product, selectedColour, sz)}
                       onClick={() => {
                         setSelectedSize(sz);
                         setQuantity(1);
+                        setSelectedImage(getProductImage({ ...product, images: getVariantImages(product, sz, selectedColour) }));
                       }}
                       className={`py-3 text-xs font-medium uppercase tracking-wider border rounded-xs transition-all ${
                         selectedSize === sz
-                          ? 'border-xora-charcoal bg-xora-charcoal text-white shadow-xs'
-                          : 'border-xora-taupe/40 bg-white text-xora-charcoal hover:border-xora-charcoal'
-                      }`}
+                          ? 'border-[#6a5543] bg-[#6a5543] text-white shadow-xs'
+                          : 'border-xora-taupe/40 bg-white text-xora-charcoal hover:border-[#6a5543]'
+                      } disabled:cursor-not-allowed disabled:bg-neutral-100 disabled:text-neutral-400 disabled:border-neutral-200`}
+                      title={
+                        product.isDemoData && !isDemoVariantSelectable(product, selectedColour, sz)
+                          ? 'This demo variant is unavailable'
+                          : `${sz}`
+                      }
                     >
                       {sz}
                     </button>
@@ -278,7 +339,9 @@ export default function ProductDetail() {
 
             {/* Stock status indicator */}
             <div className="text-xs">
-              {isOutOfStock ? (
+              {selectedVariantStatus !== 'active' ? (
+                <span className="text-red-700 font-medium">This variant is currently unavailable</span>
+              ) : isOutOfStock ? (
                 <span className="text-red-700 font-medium">Currently Sold Out</span>
               ) : isLowStock ? (
                 <span className="text-amber-800 font-medium">Only {selectedStock} items remaining in atelier</span>
@@ -287,11 +350,11 @@ export default function ProductDetail() {
               )}
             </div>
 
-            {/* Quantity Selector & Add to Bag */}
+            {/* Purchase actions */}
             <div className="space-y-3 pt-2">
-              <div className="flex flex-wrap gap-3">
+              <div className="grid grid-cols-2 gap-3">
                 {/* Quantity */}
-                <div className="order-1 flex flex-shrink-0 items-center border border-xora-taupe/40 bg-white px-3">
+                <div className="col-span-1 flex w-fit flex-shrink-0 items-center border border-xora-taupe/40 bg-white px-3">
                   <button
                     type="button"
                     onClick={() => setQuantity((q) => Math.max(1, q - 1))}
@@ -313,36 +376,11 @@ export default function ProductDetail() {
                   </button>
                 </div>
 
-                {/* Add to Cart Button */}
-                <button
-                  type="button"
-                  onClick={handleAddToCart}
-                  disabled={isOutOfStock || addingToCart}
-                  className="order-3 w-full min-w-0 btn-luxury disabled:opacity-50 disabled:cursor-not-allowed sm:order-2 sm:w-auto sm:flex-1"
-                  id="add-to-cart-detail-btn"
-                >
-                  {addedNotice ? (
-                    <span className="flex items-center justify-center space-x-2">
-                      <Check className="w-4 h-4 text-emerald-400" />
-                      <span>ADDED TO BAG</span>
-                    </span>
-                  ) : addingToCart ? (
-                    'ADDING…'
-                  ) : isOutOfStock ? (
-                    'OUT OF STOCK'
-                  ) : (
-                    <span className="flex items-center justify-center space-x-2">
-                      <ShoppingBag className="w-4 h-4" />
-                      <span>ADD TO SHOPPING BAG</span>
-                    </span>
-                  )}
-                </button>
-
                 {/* Wishlist Button */}
                 <button
                   type="button"
                   onClick={() => toggleWishlist(product)}
-                  className={`order-2 p-3.5 border rounded-xs transition-colors flex items-center justify-center sm:order-3 ${
+                  className={`col-start-2 row-start-1 justify-self-end p-3.5 border rounded-xs transition-colors flex items-center justify-center ${
                     isFavorited
                       ? 'border-xora-charcoal bg-xora-charcoal text-white'
                       : 'border-xora-taupe/40 bg-white text-xora-charcoal hover:border-xora-charcoal'
@@ -351,6 +389,41 @@ export default function ProductDetail() {
                   id="product-wishlist-detail-btn"
                 >
                   <Heart className={`w-5 h-5 ${isFavorited ? 'fill-current' : 'stroke-[1.5]'}`} />
+                </button>
+
+                {/* Add to Cart Button */}
+                <button
+                  type="button"
+                  onClick={handleAddToCart}
+                  disabled={isOutOfStock || Boolean(pendingPurchase)}
+                  className="col-span-2 w-full min-w-0 product-purchase-button product-purchase-button--primary disabled:cursor-not-allowed disabled:opacity-50 sm:col-span-1"
+                  id="add-to-cart-detail-btn"
+                >
+                  {addedNotice ? (
+                    <span className="flex items-center justify-center space-x-2">
+                      <Check className="w-4 h-4 text-emerald-400" />
+                      <span>ADDED TO CART</span>
+                    </span>
+                  ) : pendingPurchase === 'cart' ? (
+                    'ADDING…'
+                  ) : isOutOfStock ? (
+                    'OUT OF STOCK'
+                  ) : (
+                    <span className="flex items-center justify-center space-x-2">
+                      <ShoppingBag className="w-4 h-4" />
+                      <span>ADD TO CART</span>
+                    </span>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleBuyNow}
+                  disabled={isOutOfStock || Boolean(pendingPurchase)}
+                  className="col-span-2 w-full min-w-0 product-purchase-button product-purchase-button--secondary disabled:cursor-not-allowed disabled:opacity-50 sm:col-span-1"
+                  id="buy-now-detail-btn"
+                >
+                  {pendingPurchase === 'buyNow' ? 'PROCESSING…' : isOutOfStock ? 'OUT OF STOCK' : 'BUY NOW'}
                 </button>
               </div>
               {cartError && <p role="alert" className="text-xs text-red-700">{cartError}</p>}

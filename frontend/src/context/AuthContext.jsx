@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { authService } from '../services/api';
+import { adminAuthService, authService } from '../services/api';
 import { AUTH_MODE } from '../utils/authMode.js';
 
 const AuthContext = createContext();
@@ -94,6 +94,31 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  const completeAdminLogin = async ({ challengeToken, code, recoveryCode }) => {
+    try {
+      const response = await adminAuthService.verifyMfa({ challengeToken, code, recoveryCode });
+      if (!response.data.success) return { success: false, message: 'Administrator verification failed.' };
+      if (response.data.authMode && response.data.authMode !== AUTH_MODE) {
+        return { success: false, message: 'Frontend and backend authentication modes do not match.' };
+      }
+      const { token: newToken, user: userData, recoveryCodes } = response.data;
+      if (AUTH_MODE === 'bearer' && typeof newToken !== 'string') {
+        return { success: false, message: 'The backend did not return an administrator session.' };
+      }
+      if (AUTH_MODE === 'bearer') sessionStorage.setItem('xora_token', newToken);
+      else sessionStorage.removeItem('xora_token');
+      sessionStorage.setItem('xora_user', JSON.stringify(userData));
+      setToken(AUTH_MODE === 'cookie' ? null : newToken);
+      setUser(userData);
+      return { success: true, user: userData, recoveryCodes };
+    } catch (error) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Administrator verification failed.'
+      };
+    }
+  };
+
   const logout = () => {
     const currentToken = sessionStorage.getItem('xora_token');
     if (AUTH_MODE === 'cookie' || currentToken) authService.logout(currentToken).catch(() => {});
@@ -116,9 +141,10 @@ export const AuthProvider = ({ children }) => {
         token,
         loading,
         isAuthenticated: !!user,
-        isAdmin: user?.role === 'admin',
+        isAdmin: ['admin', 'owner'].includes(user?.role),
         login,
         register,
+        completeAdminLogin,
         logout,
         updateUser
       }}

@@ -31,3 +31,16 @@ test('supports aggregate legacy product adjustments without requiring a SKU', ()
     { sku: null, productId: '507f1f77bcf86cd799439011', delta: -3 }
   ]);
 });
+
+test('stock reductions cannot leave on-hand quantity below reserved quantity', async () => {
+  const { calculateStockAfterAdjustment } = await import('../src/utils/variantInventory.js');
+  assert.equal(typeof calculateStockAfterAdjustment, 'function');
+  assert.equal(calculateStockAfterAdjustment(5, -2, 3), 3);
+  assert.throws(() => calculateStockAfterAdjustment(5, -3, 3), /reserved/);
+});
+
+test('stock adjustments reject invalid physical or reserved quantities', async () => {
+  const { calculateStockAfterAdjustment } = await import('../src/utils/variantInventory.js');
+  assert.throws(() => calculateStockAfterAdjustment(4, -1, 5), /reserved/);
+  assert.throws(() => calculateStockAfterAdjustment(4, 1.5, 0), /whole number/);
+});

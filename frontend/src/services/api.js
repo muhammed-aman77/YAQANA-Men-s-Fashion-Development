@@ -51,6 +51,17 @@ export const authService = {
     : undefined)
 };
 
+export const adminAuthService = {
+  beginLogin: (data) => API.post('/admin-auth/login', data),
+  verifyMfa: (data) => API.post('/admin-auth/verify', data),
+  beginMfaReplacement: (data) => API.post('/admin-auth/mfa/replacement/start', data),
+  verifyMfaReplacement: (data) => API.post('/admin-auth/mfa/replacement/verify', data),
+  reauthenticate: (data) => API.post('/admin-auth/reauthenticate', data),
+  getMfaStatus: () => API.get('/admin-auth/mfa'),
+  rotateRecoveryCodes: (data) => API.post('/admin-auth/recovery-codes', data),
+  revokeOtherSessions: () => API.post('/admin-auth/sessions/revoke-others')
+};
+
 // Product Services
 export const productService = {
   getCollections: () => API.get('/products/collections'),
@@ -61,7 +72,8 @@ export const productService = {
   getProductById: (id) => API.get(`/products/${id}`),
   createProduct: (data) => API.post('/products', data),
   updateProduct: (id, data) => API.put(`/products/${id}`, data),
-  deleteProduct: (id) => API.delete(`/products/${id}`)
+  deleteProduct: (id) => API.delete(`/products/${id}`),
+  permanentlyDeleteProduct: (id) => API.delete(`/products/${id}/permanent`)
 };
 
 // Category Services
@@ -74,11 +86,14 @@ export const categoryService = {
 
 // Order Services
 export const orderService = {
+  getCheckoutQuote: (data) => API.post('/orders/quote', data),
   createOrder: (data, idempotencyKey) => API.post('/orders', data, { headers: { 'Idempotency-Key': idempotencyKey } }),
   getMyOrders: () => API.get('/orders/my-orders'),
   getOrderById: (id) => API.get(`/orders/${id}`),
   getAllOrders: (params) => API.get('/orders', { params }),
-  updateOrderStatus: (id, data) => API.put(`/orders/${id}`, data)
+  updateOrderStatus: (id, data) => API.put(`/orders/${id}`, data),
+  updateCodLifecycle: (id, data) => API.patch(`/orders/${id}/cod`, data),
+  updateShipment: (id, data) => API.patch(`/orders/${id}/shipment`, data)
 };
 
 // Cart Services
@@ -107,11 +122,56 @@ export const addressService = {
 
 // Admin Services
 export const adminService = {
-  getStats: () => API.get('/admin/stats'),
-  getCustomers: () => API.get('/admin/customers'),
+  getStats: ({ period, timeZone } = {}) => API.get('/admin/stats', { params: { period, timeZone } }),
+  exportDashboardCsv: ({ period, timeZone } = {}) => API.get('/admin/stats/export.csv', {
+    params: { period, timeZone },
+    responseType: 'blob'
+  }),
+  globalSearch: (q, config = {}) => API.get('/admin/search', { ...config, params: { ...config.params, q } }),
+  getNotifications: (config = {}) => API.get('/admin/notifications', config),
+  updateNotificationReadState: (notificationId, isRead) => API.put('/admin/notifications/read-state', { notificationId, isRead }),
+  getActivity: (config = {}) => API.get('/admin/activity', config),
+  getPreferences: () => API.get('/admin/preferences'),
+  saveFilters: (savedFilters) => API.put('/admin/preferences/filters', { savedFilters }),
+  getCustomers: (params) => API.get('/admin/customers', { params }),
+  getCustomerDetails: (id) => API.get(`/admin/customers/${id}`),
   updateCustomerStatus: (id, data) => API.put(`/admin/customers/${id}/status`, data),
-  getInventory: () => API.get('/admin/inventory'),
+  getInventory: (params) => API.get('/admin/inventory', { params }),
+  restoreInventorySku: (productId, sku, reason) => API.post(
+    `/admin/inventory/products/${encodeURIComponent(productId)}/skus/${encodeURIComponent(sku)}/restore`,
+    { reason }
+  ),
+  getInventoryPolicy: () => API.get('/admin/inventory/policy'),
+  getInventoryApprovals: (params) => API.get('/admin/inventory/approvals', { params }),
+  approveInventoryAdjustment: (id) => API.post(`/admin/inventory/approvals/${encodeURIComponent(id)}/approve`),
+  rejectInventoryAdjustment: (id, reason) => API.post(`/admin/inventory/approvals/${encodeURIComponent(id)}/reject`, { reason }),
+  getInventoryInbound: (params) => API.get('/admin/inventory/inbound', { params }),
+  createInventoryInbound: (data, idempotencyKey) => API.post('/admin/inventory/inbound', data, { headers: { 'Idempotency-Key': idempotencyKey } }),
+  receiveInventoryInbound: (id, data, idempotencyKey) => API.post(
+    `/admin/inventory/inbound/${encodeURIComponent(id)}/receive`,
+    data,
+    { headers: { 'Idempotency-Key': idempotencyKey } }
+  ),
   getInventoryMovements: (params) => API.get('/admin/inventory/movements', { params }),
+  exportInventoryCsv: (params) => API.get('/admin/inventory/export.csv', { params, responseType: 'blob' }),
+  setInventoryReorderTarget: (sku, reorderTarget) => API.patch(
+    `/admin/inventory/${encodeURIComponent(sku)}/reorder-target`,
+    { reorderTarget }
+  ),
+  getLegacyAllocationPreview: (productId) => API.get(`/admin/inventory/products/${encodeURIComponent(productId)}/legacy-allocation`),
+  previewLegacyAllocation: (productId, allocations) => API.post(
+    `/admin/inventory/products/${encodeURIComponent(productId)}/legacy-allocation/preview`,
+    { allocations }
+  ),
+  updateVerifiedUnitCost: (sku, data) => API.patch(
+    `/admin/inventory/${encodeURIComponent(sku)}/unit-cost`,
+    data
+  ),
+  previewInventoryStocktake: (productId, data) => API.post(
+    `/admin/inventory/products/${encodeURIComponent(productId)}/stocktake/preview`,
+    data
+  ),
+  previewInventoryCsvImport: (csvText) => API.post('/admin/inventory/csv/preview', { csvText }),
   adjustInventory: (data, idempotencyKey) => API.post('/admin/inventory/adjustments', data, { headers: { 'Idempotency-Key': idempotencyKey } })
 };
 
@@ -126,7 +186,8 @@ export const supportService = {
 
 // Upload Service
 export const uploadService = {
-  uploadImage: (formData) => API.post('/upload', formData)
+  uploadImage: (formData) => API.post('/upload', formData),
+  deleteImage: (imageUrl) => API.delete('/upload', { data: { imageUrl } })
 };
 
 export default API;

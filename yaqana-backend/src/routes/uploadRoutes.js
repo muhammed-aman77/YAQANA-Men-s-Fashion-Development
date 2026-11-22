@@ -5,10 +5,12 @@ import multer from 'multer';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { env } from '../config/env.js';
+import AdminAudit from '../models/AdminAudit.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { httpError } from '../utils/http.js';
-import { isValidImageSignature } from '../utils/cloudinaryUpload.js';
-import { uploadProductImage } from '../services/cloudinaryStorage.js';
+import { createImageDeleteHandler, createImageUploadHandler } from '../utils/cloudinaryUpload.js';
+import { createLocalImageDeleter } from '../utils/localImageStorage.js';
+import { deleteProductImage, uploadProductImage } from '../services/cloudinaryStorage.js';
 
 const router = Router();
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -37,22 +39,13 @@ async function saveLocalImage(file) {
   return `/uploads/${filename}`;
 }
 
-router.post('/', requireAuth, requireAdmin, upload.single('image'), async (req, res, next) => {
-  try {
-    if (!req.file || !Buffer.isBuffer(req.file.buffer)) {
-      throw httpError(400, 'Please select an image file to upload.');
-    }
-    if (!isValidImageSignature(req.file.mimetype, req.file.buffer)) {
-      throw httpError(415, 'The uploaded file is not a valid supported image.');
-    }
-
-    const imageUrl = env.MEDIA_STORAGE === 'cloudinary'
-      ? await uploadProductImage(req.file.buffer)
-      : await saveLocalImage(req.file);
-    res.status(200).json({ success: true, message: 'Image uploaded successfully.', imageUrl });
-  } catch (error) {
-    next(error);
-  }
-});
+const uploadImage = env.MEDIA_STORAGE === 'cloudinary'
+  ? (buffer) => uploadProductImage(buffer)
+  : (_buffer, file) => saveLocalImage(file);
+const deleteImage = env.MEDIA_STORAGE === 'cloudinary'
+  ? deleteProductImage
+  : createLocalImageDeleter(uploadDirectory);
+router.post('/', requireAuth, requireAdmin, upload.single('image'), createImageUploadHandler(uploadImage, { auditModel: AdminAudit, deleteImage }));
+router.delete('/', requireAuth, requireAdmin, createImageDeleteHandler(deleteImage, { auditModel: AdminAudit }));
 
 export default router;

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   CSRF_COOKIE_NAME,
   SESSION_COOKIE_NAME,
+  createCsrfCookieOptions,
   createCsrfTokenHash,
   createSessionCookieOptions,
   getCookieValue,
@@ -15,6 +16,17 @@ test('session cookies are host-only, HttpOnly and secure in production', () => {
 
   assert.equal(SESSION_COOKIE_NAME, 'yaqana_session');
   assert.equal(options.httpOnly, true);
+  assert.equal(options.secure, true);
+  assert.equal(options.sameSite, 'lax');
+  assert.equal(options.path, '/');
+  assert.equal(options.maxAge, 60_000);
+  assert.equal(Object.hasOwn(options, 'domain'), false);
+});
+
+test('production CSRF cookies are secure, host-only, and readable by the client', () => {
+  const options = createCsrfCookieOptions({ production: true, maxAgeMs: 60_000 });
+
+  assert.equal(options.httpOnly, false);
   assert.equal(options.secure, true);
   assert.equal(options.sameSite, 'lax');
   assert.equal(options.path, '/');

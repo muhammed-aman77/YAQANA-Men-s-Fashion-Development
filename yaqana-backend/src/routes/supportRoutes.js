@@ -16,7 +16,7 @@ router.get('/assignees', requireAdmin, getSupportAssignees);
 router.get('/tickets', getSupportTickets);
 router.post('/tickets', createSupportTicket);
 router.get('/tickets/:id', getSupportTicket);
-router.patch('/tickets/:id', requireAdmin, updateSupportTicket);
+router.patch('/tickets/:id', updateSupportTicket);
 router.post('/tickets/:id/replies', addSupportReply);
 
 export default router;

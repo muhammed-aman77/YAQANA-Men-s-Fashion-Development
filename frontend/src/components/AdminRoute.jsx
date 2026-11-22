@@ -12,11 +12,15 @@ export default function AdminRoute({ children }) {
   }
 
   if (!isAuthenticated) {
-    return <Navigate to={`/login?redirect=${encodeURIComponent(location.pathname + location.search)}`} replace />;
+    return <Navigate to={`/admin/login?redirect=${encodeURIComponent(location.pathname + location.search)}`} replace />;
   }
 
   if (!isAdmin) {
     return <Navigate to="/account" replace />;
+  }
+
+  if (!user.adminMfaVerified) {
+    return <Navigate to={`/admin/login?redirect=${encodeURIComponent(location.pathname + location.search)}`} replace />;
   }
 
   return children;

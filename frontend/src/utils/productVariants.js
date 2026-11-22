@@ -1,3 +1,5 @@
+import { rupeesToCatalogUnits } from './currency.js';
+
 const slugPart = (value, limit) => String(value)
   .trim()
   .toUpperCase()
@@ -21,7 +23,7 @@ export function buildVariantMatrix({ productName, sizes, colours, existingVarian
 
   return sizes.flatMap((size) => colours.map((colour) => {
     const existing = existingByCombination.get(combinationKey(size, colour));
-    if (existing) return { size, colour, sku: existing.sku, stock: existing.stock };
+    if (existing) return { ...existing, size, colour, sku: existing.sku, stock: existing.stock };
     const suffix = String(generateSuffix()).replace(/[^A-Z0-9]/gi, '').slice(0, 8).toUpperCase();
     if (suffix.length !== 8) throw new Error('Secure SKU generation returned an invalid identifier.');
     return {
@@ -46,6 +48,53 @@ export function getVariantStock(product, size, colour) {
     return getProductVariant(product, size, colour)?.stock ?? 0;
   }
   return product?.stock ?? 0;
+}
+
+export function getVariantAvailability(product, size, colour) {
+  const variants = Array.isArray(product?.variants) ? product.variants : [];
+  const variant = getProductVariant(product, size, colour);
+  if (variants.length && !variant) return 0;
+  const onHand = Number(variant ? variant.stock : product?.stock);
+  const reserved = Number(variant?.reservedQuantity ?? 0);
+  if (!Number.isSafeInteger(onHand) || onHand < 0 ||
+    !Number.isSafeInteger(reserved) || reserved < 0 || reserved > onHand) {
+    return 0;
+  }
+  return onHand - reserved;
+}
+
+export function getVariantStatus(product, size, colour) {
+  const status = getProductVariant(product, size, colour)?.status;
+  return status == null ? 'active' : status;
+}
+
+export function getVariantPrice(product, size, colour) {
+  const variant = getProductVariant(product, size, colour);
+  const toCatalogUnits = (paise) => rupeesToCatalogUnits(Number(paise) / 100);
+  const productRegular = Number.isSafeInteger(product?.pricePaise)
+    ? toCatalogUnits(product.pricePaise)
+    : Number(product?.price) || 0;
+  const productSale = Number.isSafeInteger(product?.discountPricePaise)
+    ? toCatalogUnits(product.discountPricePaise)
+    : Number(product?.discountPrice) || productRegular;
+  const variantRegular = Number.isSafeInteger(variant?.pricePaise)
+    ? toCatalogUnits(variant.pricePaise)
+    : productRegular;
+  const price = Number.isSafeInteger(variant?.discountPricePaise)
+    ? toCatalogUnits(variant.discountPricePaise)
+    : Number.isSafeInteger(variant?.pricePaise)
+      ? variantRegular
+      : productSale;
+
+  return { price, originalPrice: variantRegular };
+}
+
+export function getVariantImages(product, size, colour) {
+  const variantImages = getProductVariant(product, size, colour)?.images;
+  const selectedVariantImages = Array.isArray(variantImages)
+    ? variantImages.filter((image) => typeof image === 'string' && image.trim())
+    : [];
+  return selectedVariantImages.length ? selectedVariantImages : getColourGallery(product, colour);
 }
 
 export function getColourGallery(product, colour) {

@@ -20,6 +20,8 @@ import SearchResults from './pages/SearchResults.jsx';
 import CartPage from './pages/CartPage.jsx';
 import CheckoutPage from './pages/CheckoutPage.jsx';
 import LoginPage from './pages/LoginPage.jsx';
+import AdminLoginPage from './pages/AdminLoginPage.jsx';
+import AdminSecurityPage from './pages/AdminSecurityPage.jsx';
 import SubscriptionPage from './pages/SubscriptionPage.jsx';
 import RegisterPage from './pages/RegisterPage.jsx';
 import AccountPage from './pages/AccountPage.jsx';
@@ -53,13 +55,10 @@ function AppShell() {
             <Route path="/cart" element={<CartPage />} />
             <Route
               path="/checkout"
-              element={
-                <ProtectedRoute>
-                  <CheckoutPage />
-                </ProtectedRoute>
-              }
+              element={<CheckoutPage />}
             />
             <Route path="/login" element={<LoginPage />} />
+            <Route path="/admin/login" element={<AdminLoginPage />} />
             <Route path="/subscribe" element={<SubscriptionPage />} />
             <Route path="/register" element={<RegisterPage />} />
             <Route path="/about" element={<AboutPage />} />
@@ -79,6 +78,14 @@ function AppShell() {
               element={
                 <AdminRoute>
                   <AdminDashboardPage />
+                </AdminRoute>
+              }
+            />
+            <Route
+              path="/admin/security"
+              element={
+                <AdminRoute>
+                  <AdminSecurityPage />
                 </AdminRoute>
               }
             />

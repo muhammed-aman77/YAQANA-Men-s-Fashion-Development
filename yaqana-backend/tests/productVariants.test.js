@@ -16,10 +16,10 @@ test('validates a complete size and colour matrix while normalizing SKUs', () =>
   ]);
 
   assert.deepEqual(variants, [
-    { size: 'S', colour: 'Black', sku: 'YAQ-TEE-BLK-S', stock: 4 },
-    { size: 'S', colour: 'Stone', sku: 'YAQ-TEE-STN-S', stock: 2 },
-    { size: 'M', colour: 'Black', sku: 'YAQ-TEE-BLK-M', stock: 0 },
-    { size: 'M', colour: 'Stone', sku: 'YAQ-TEE-STN-M', stock: 7 }
+    { size: 'S', colour: 'Black', sku: 'YAQ-TEE-BLK-S', stock: 4, status: 'active' },
+    { size: 'S', colour: 'Stone', sku: 'YAQ-TEE-STN-S', stock: 2, status: 'active' },
+    { size: 'M', colour: 'Black', sku: 'YAQ-TEE-BLK-M', stock: 0, status: 'active' },
+    { size: 'M', colour: 'Stone', sku: 'YAQ-TEE-STN-M', stock: 7, status: 'active' }
   ]);
 });
 
@@ -53,6 +53,99 @@ test('rejects duplicate SKUs and invalid per-variant stock', () => {
     ]),
     /whole number/
   );
+});
+
+test('normalizes manual SKUs and barcodes while validating optional variant commerce fields', () => {
+  const [variant] = validateVariantMatrix(['M'], [{ name: 'Sand' }], [{
+    size: 'M',
+    colour: 'Sand',
+    sku: ' custom-sand-m ',
+    stock: 0,
+    barcode: ' 0123abc ',
+    pricePaise: 399000,
+    discountPricePaise: 350000,
+    images: ['https://images.example.test/sand-m.jpg', '/uploads/sand-m-back.jpg'],
+    status: 'inactive'
+  }]);
+
+  assert.deepEqual(variant, {
+    size: 'M',
+    colour: 'Sand',
+    sku: 'CUSTOM-SAND-M',
+    stock: 0,
+    barcode: '0123ABC',
+    pricePaise: 399000,
+    discountPricePaise: 350000,
+    images: ['https://images.example.test/sand-m.jpg', '/uploads/sand-m-back.jpg'],
+    status: 'inactive'
+  });
+});
+
+test('rejects duplicate normalized barcodes, invalid lifecycle status, and unsafe variant images', () => {
+  assert.throws(
+    () => validateVariantMatrix(['S', 'M'], [{ name: 'Black' }], [
+      { size: 'S', colour: 'Black', sku: 'YAQ-BLK-S', stock: 0, barcode: '012345' },
+      { size: 'M', colour: 'Black', sku: 'YAQ-BLK-M', stock: 0, barcode: ' 012345 ' }
+    ]),
+    /barcodes must be unique/i
+  );
+  assert.throws(
+    () => validateVariantMatrix(['S'], [{ name: 'Black' }], [
+      { size: 'S', colour: 'Black', sku: 'YAQ-BLK-S', stock: 0, status: 'pending' }
+    ]),
+    /status is invalid/i
+  );
+  assert.throws(
+    () => validateVariantMatrix(['S'], [{ name: 'Black' }], [
+      { size: 'S', colour: 'Black', sku: 'YAQ-BLK-S', stock: 0, images: ['javascript:alert(1)'] }
+    ]),
+    /image URL/i
+  );
+});
+
+test('legacy variants default to active and client edits cannot set reservation or acquisition-cost fields', () => {
+  const [variant] = validateVariantMatrix(['M'], [{ name: 'Stone' }], [{
+    size: 'M',
+    colour: 'Stone',
+    sku: 'YAQ-STN-M',
+    stock: 3,
+    reservedQuantity: 2,
+    unitCostPaise: 10000,
+    costedQuantity: 3
+  }]);
+
+  assert.equal(variant.status, 'active');
+  assert.equal('reservedQuantity' in variant, false);
+  assert.equal('unitCostPaise' in variant, false);
+  assert.equal('costedQuantity' in variant, false);
+});
+
+test('product serialization redacts reserved and acquisition-cost variant data', async () => {
+  const product = new Product({
+    name: 'Private Inventory Tee',
+    slug: 'private-inventory-tee',
+    description: 'Variant serialization fixture',
+    category: 'T-Shirts',
+    pricePaise: 250000,
+    sizes: ['M'],
+    colours: [{ name: 'Black' }],
+    variants: [{
+      size: 'M',
+      colour: 'Black',
+      sku: 'YAQ-PRIVATE-M',
+      stock: 4,
+      reservedQuantity: 2,
+      unitCostPaise: 120000,
+      costedQuantity: 4
+    }]
+  });
+
+  await product.validate();
+  assert.equal(product.variants[0].reservedQuantity, 2);
+  const serializedVariant = product.toJSON().variants[0];
+  assert.equal('reservedQuantity' in serializedVariant, false);
+  assert.equal('unitCostPaise' in serializedVariant, false);
+  assert.equal('costedQuantity' in serializedVariant, false);
 });
 
 test('variant-enabled products derive aggregate stock while legacy products retain aggregate stock', async () => {

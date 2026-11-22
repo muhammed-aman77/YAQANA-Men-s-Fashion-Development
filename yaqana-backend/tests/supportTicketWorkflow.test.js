@@ -6,6 +6,7 @@ import Order from '../src/models/Order.js';
 import Session from '../src/models/Session.js';
 import SupportTicket from '../src/models/SupportTicket.js';
 import User from '../src/models/User.js';
+import AdminAudit from '../src/models/AdminAudit.js';
 import { app } from '../src/app.js';
 import { issueToken } from '../src/utils/token.js';
 import {
@@ -35,6 +36,7 @@ test('support tickets persist status, assignment, replies and private notes with
     if (server?.listening) await new Promise((resolve) => server.close(resolve));
     if (sessionIds.length) await Session.deleteMany({ jti: { $in: sessionIds } });
     if (ticketId) await SupportTicket.deleteOne({ _id: ticketId });
+    if (ticketId) await AdminAudit.deleteMany({ action: 'support.ticket.update', 'metadata.targetId': String(ticketId) });
     if (order) await Order.deleteOne({ _id: order._id });
     if (customer) await User.deleteOne({ _id: customer._id, email: customerEmail });
     await mongoose.disconnect();
@@ -112,6 +114,10 @@ test('support tickets persist status, assignment, replies and private notes with
   assert.ifError(updated.error);
   assert.equal(updated.response.body.ticket.status, 'Assigned');
   assert.equal(String(updated.response.body.ticket.assignedTo._id), String(admin._id));
+  const audit = await AdminAudit.findOne({ action: 'support.ticket.update', 'metadata.targetId': String(ticketId) }).lean();
+  assert.equal(audit.before.status, 'Open');
+  assert.equal(audit.after.status, 'Assigned');
+  assert.equal(audit.metadata.internalNoteContentLogged, false);
 
   const reply = await invoke(addSupportReply, {
     user: customer,
@@ -163,7 +169,12 @@ test('support tickets persist status, assignment, replies and private notes with
   sessionIds.push(customerSession.jti, adminSession.jti);
   await Session.create([
     { user: customer._id, jti: customerSession.jti, expiresAt: customerSession.expiresAt },
-    { user: admin._id, jti: adminSession.jti, expiresAt: adminSession.expiresAt }
+    {
+      user: admin._id,
+      jti: adminSession.jti,
+      expiresAt: adminSession.expiresAt,
+      mfaVerifiedAt: new Date()
+    }
   ]);
   server = app.listen(0);
   await new Promise((resolve) => server.once('listening', resolve));

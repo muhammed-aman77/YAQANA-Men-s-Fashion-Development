@@ -12,6 +12,23 @@ export function updateInventoryDraft(draft, changes) {
   return changed ? { ...draft, ...changes, idempotencyKey: undefined } : draft;
 }
 
+export function isInventoryPolicyValid(policy) {
+  const values = [
+    policy?.normalAdjustmentLimit,
+    policy?.enhancedConfirmationLimit,
+    policy?.adminApprovalLimit
+  ];
+  return values.every((value) => Number.isSafeInteger(value) && value > 0) &&
+    policy.normalAdjustmentLimit < policy.enhancedConfirmationLimit &&
+    policy.enhancedConfirmationLimit < policy.adminApprovalLimit;
+}
+
+export function requiresEnhancedInventoryConfirmation(delta, policy) {
+  if (!Number.isSafeInteger(delta) || !isInventoryPolicyValid(policy)) return false;
+  return Math.abs(delta) > policy.normalAdjustmentLimit &&
+    Math.abs(delta) <= policy.enhancedConfirmationLimit;
+}
+
 export function getInventoryRequestKey(target, delta, reason, storage, createKey) {
   if (typeof target !== 'string' || !target || !Number.isSafeInteger(delta) || delta === 0 || !reason.trim()) {
     throw new Error('Inventory request details are invalid.');

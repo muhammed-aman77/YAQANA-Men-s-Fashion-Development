@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import mongoose from 'mongoose';
 import Product from '../src/models/Product.js';
+import AdminAudit from '../src/models/AdminAudit.js';
 import { createProduct, getProductById, updateProduct } from '../src/controllers/catalogController.js';
 
 const localDatabaseUri = 'mongodb://127.0.0.1:27017/yaqana_local_dev_20261115';
@@ -14,9 +15,11 @@ test('colour galleries can supply the primary image and variant edits persist ac
   const suffix = randomUUID().replace(/-/g, '');
   const slug = `local-variant-persistence-${suffix}`;
   let productId;
+  const auditIds = [];
 
   t.after(async () => {
     if (productId) await Product.deleteOne({ _id: productId, slug });
+    if (auditIds.length) await AdminAudit.deleteMany({ _id: { $in: auditIds }, action: /^catalog\.product\./ });
     await mongoose.disconnect();
   });
 
@@ -28,7 +31,11 @@ test('colour galleries can supply the primary image and variant edits persist ac
       json(body) { this.body = body; return this; }
     };
     let forwardedError;
-    await handler(req, response, (error) => { forwardedError = error; });
+    await handler({ ...req, user: { _id: new mongoose.Types.ObjectId() } }, response, (error) => { forwardedError = error; });
+    if (response.body?.product?._id) {
+      const audit = await AdminAudit.findOne({ 'metadata.targetId': String(response.body.product._id), action: /^catalog\.product\./ }).select('_id').lean();
+      if (audit?._id) auditIds.push(audit._id);
+    }
     return { response, error: forwardedError };
   };
 

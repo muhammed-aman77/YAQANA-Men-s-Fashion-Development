@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { CAMPAIGN_IMAGES } from '../config/storefront';
+import PasswordInput from '../components/PasswordInput.jsx';
 
 export default function RegisterPage() {
   const navigate = useNavigate();
@@ -82,9 +83,9 @@ export default function RegisterPage() {
                 />
               </div>
               <div>
-                <label className="block text-[11px] uppercase tracking-luxury font-medium text-xora-charcoal mb-1">Password</label>
-                <input
-                  type="password"
+                <label htmlFor="register-password" className="block text-[11px] uppercase tracking-luxury font-medium text-xora-charcoal mb-1">Password</label>
+                <PasswordInput
+                  id="register-password"
                   name="password"
                   value={form.password}
                   onChange={handleChange}
@@ -94,9 +95,9 @@ export default function RegisterPage() {
                 />
               </div>
               <div>
-                <label className="block text-[11px] uppercase tracking-luxury font-medium text-xora-charcoal mb-1">Confirm Password</label>
-                <input
-                  type="password"
+                <label htmlFor="register-confirm-password" className="block text-[11px] uppercase tracking-luxury font-medium text-xora-charcoal mb-1">Confirm Password</label>
+                <PasswordInput
+                  id="register-confirm-password"
                   name="confirmPassword"
                   value={form.confirmPassword}
                   onChange={handleChange}

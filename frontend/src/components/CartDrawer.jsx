@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { X, Plus, Minus, Trash2, ArrowRight, ShoppingBag } from 'lucide-react';
 import { useCart } from '../context/CartContext';
@@ -6,6 +6,7 @@ import { formatInr } from '../utils/currency';
 import { getProductImage } from '../utils/productImage';
 
 export default function CartDrawer() {
+  const [quantityError, setQuantityError] = useState('');
   const {
     items,
     isCartOpen,
@@ -31,6 +32,14 @@ export default function CartDrawer() {
   const handleViewCart = () => {
     closeCart();
     navigate('/cart');
+  };
+
+  const handleUpdateQuantity = async (itemId, quantity) => {
+    setQuantityError('');
+    const result = await updateQuantity(itemId, quantity);
+    if (result && !result.success) {
+      setQuantityError(result.message || 'Could not update this item in your bag. Please try again.');
+    }
   };
 
   return (
@@ -82,6 +91,9 @@ export default function CartDrawer() {
 
           {/* Cart Items List */}
           <div className="flex-1 overflow-y-auto px-6 py-4 divide-y divide-xora-taupe/20">
+            {quantityError && (
+              <p className="mb-4 text-sm text-red-700" role="alert">{quantityError}</p>
+            )}
             {items.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center text-center py-12">
                 <div className="w-16 h-16 rounded-full bg-xora-sand/50 flex items-center justify-center mb-4">
@@ -147,7 +159,7 @@ export default function CartDrawer() {
                       <div className="flex items-center border border-xora-taupe/40 bg-white">
                         <button
                           type="button"
-                          onClick={() => updateQuantity(item._id, item.quantity - 1)}
+                          onClick={() => handleUpdateQuantity(item._id, item.quantity - 1)}
                           className="p-1 px-2 text-xora-charcoal hover:bg-xora-sand/50 transition-colors"
                           aria-label="Decrease quantity"
                         >
@@ -158,9 +170,10 @@ export default function CartDrawer() {
                         </span>
                         <button
                           type="button"
-                          onClick={() => updateQuantity(item._id, item.quantity + 1)}
+                          onClick={() => handleUpdateQuantity(item._id, item.quantity + 1)}
                           className="p-1 px-2 text-xora-charcoal hover:bg-xora-sand/50 transition-colors"
                           aria-label="Increase quantity"
+                          disabled={!Number.isSafeInteger(item.stock) || item.quantity >= item.stock}
                         >
                           <Plus className="w-3 h-3" />
                         </button>

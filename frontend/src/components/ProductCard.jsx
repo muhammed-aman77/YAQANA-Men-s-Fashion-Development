@@ -12,6 +12,7 @@ export default function ProductCard({ product }) {
   const [selectedSize, setSelectedSize] = useState(product?.sizes?.[0] || 'M');
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [addedNotice, setAddedNotice] = useState(false);
+  const [quickAddError, setQuickAddError] = useState('');
 
   if (!product) return null;
 
@@ -19,12 +20,17 @@ export default function ProductCard({ product }) {
   const isOutOfStock = product.stock <= 0;
   const isLowStock = product.stock > 0 && product.stock <= 5;
 
-  const handleQuickAdd = (e) => {
+  const handleQuickAdd = async (e) => {
     e.preventDefault();
     e.stopPropagation();
     if (isOutOfStock) return;
 
-    addToCart(product, selectedSize, product.colours?.[0]?.name || 'Default', 1);
+    setQuickAddError('');
+    const result = await addToCart(product, selectedSize, product.colours?.[0]?.name || 'Default', 1);
+    if (!result?.success) {
+      setQuickAddError(result?.message || 'This selection is no longer available.');
+      return;
+    }
     setAddedNotice(true);
     setTimeout(() => {
       setAddedNotice(false);
@@ -63,6 +69,11 @@ export default function ProductCard({ product }) {
 
         {/* Badges */}
         <div className="absolute top-2.5 left-2.5 flex flex-col space-y-1 z-10">
+          {product.isDemoData && (
+            <span className="bg-amber-100 text-amber-900 text-[10px] uppercase tracking-widest px-2 py-0.5 font-medium border border-amber-300">
+              Demo catalogue
+            </span>
+          )}
           {product.discountPrice && (
             <span className="bg-xora-charcoal text-white text-[10px] uppercase tracking-widest px-2 py-0.5 font-medium">
               Sale
@@ -104,6 +115,7 @@ export default function ProductCard({ product }) {
           <div className="absolute inset-x-0 bottom-0 p-3 bg-gradient-to-t from-black/50 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 hidden sm:flex flex-col space-y-2">
             {showQuickAdd ? (
               <div className="bg-xora-offwhite p-2.5 rounded-xs shadow-lg space-y-2 animate-fade-in">
+                {quickAddError && <p role="alert" className="text-xs text-red-700">{quickAddError}</p>}
                 <div className="flex items-center justify-between text-[11px] text-xora-taupe-dark">
                   <span>Select Size:</span>
                   <button

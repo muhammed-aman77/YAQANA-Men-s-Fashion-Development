@@ -12,14 +12,16 @@ import Session from '../src/models/Session.js';
 import User from '../src/models/User.js';
 import { getCookieValue, CSRF_COOKIE_NAME, SESSION_COOKIE_NAME } from '../src/utils/cookieAuth.js';
 import { hashPassword } from '../src/utils/password.js';
+import { createTotpCode } from '../src/utils/adminMfa.js';
 
 const enabled = process.env.RUN_LOCAL_DB_TESTS === '1' &&
   process.env.AUTH_COOKIE_ENABLED === 'true' &&
   process.env.MEDIA_STORAGE === 'local' &&
+  Boolean(process.env.MFA_ENCRYPTION_KEY) &&
   process.env.MONGODB_URI === 'mongodb://127.0.0.1:27017/yaqana_local_dev_20261115';
 
 test('cookie login, CSRF protection, admin upload, and logout persist against the local API', {
-  skip: !enabled
+  skip: enabled ? false : 'requires explicit local database opt-in, cookie auth, local media, and a stable MFA_ENCRYPTION_KEY'
 }, async () => {
   const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const email = `cookie-flow-${suffix}@example.test`;
@@ -42,10 +44,18 @@ test('cookie login, CSRF protection, admin upload, and logout persist against th
     await once(server, 'listening');
     const origin = 'http://localhost:3000';
     const api = `http://127.0.0.1:${server.address().port}/api`;
-    const login = await fetch(`${api}/auth/login`, {
+    const loginChallenge = await fetch(`${api}/admin-auth/login`, {
       method: 'POST',
       headers: { Origin: origin, 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password })
+    });
+    const challengeBody = await loginChallenge.json();
+    assert.equal(loginChallenge.status, 200);
+    assert.equal(challengeBody.status, 'mfa_setup_required');
+    const login = await fetch(`${api}/admin-auth/verify`, {
+      method: 'POST',
+      headers: { Origin: origin, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ challengeToken: challengeBody.challengeToken, code: createTotpCode(challengeBody.secret) })
     });
     const loginBody = await login.json();
     const cookiePairs = login.headers.getSetCookie().map((cookie) => cookie.split(';', 1)[0]);
@@ -56,6 +66,8 @@ test('cookie login, CSRF protection, admin upload, and logout persist against th
 
     assert.equal(login.status, 200);
     assert.equal(loginBody.authMode, 'cookie');
+    assert.equal(loginBody.user.adminMfaVerified, true);
+    assert.equal(loginBody.recoveryCodes.length, 10);
     assert.equal(Object.hasOwn(loginBody, 'token'), false);
     assert.ok(sessionCookie);
     assert.ok(csrfCookie);

@@ -5,6 +5,7 @@ import { rateLimit } from 'express-rate-limit';
 import { env } from './config/env.js';
 import healthRoutes from './routes/healthRoutes.js';
 import authRoutes from './routes/authRoutes.js';
+import adminAuthRoutes from './routes/adminAuthRoutes.js';
 import productRoutes from './routes/productRoutes.js';
 import categoryRoutes from './routes/categoryRoutes.js';
 import cartRoutes from './routes/cartRoutes.js';
@@ -44,6 +45,7 @@ if (env.MEDIA_STORAGE === 'local') {
 app.get('/', (req, res) => res.status(200).json({ success: true, service: 'yaqana-api', message: 'YAQANA API is running.' }));
 app.use('/api/health', healthRoutes);
 app.use('/api/auth', authRoutes);
+app.use('/api/admin-auth', adminAuthRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/cart', cartRoutes);

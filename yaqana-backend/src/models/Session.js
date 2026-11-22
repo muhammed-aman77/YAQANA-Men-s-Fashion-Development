@@ -4,6 +4,8 @@ const sessionSchema = new mongoose.Schema({
   jti: { type: String, required: true, unique: true },
   expiresAt: { type: Date, required: true },
   revokedAt: { type: Date, default: null },
+  mfaVerifiedAt: { type: Date, default: null },
+  mfaReauthenticatedAt: { type: Date, default: null },
   csrfTokenHash: { type: String, default: null, select: false }
 }, { timestamps: true });
 sessionSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });

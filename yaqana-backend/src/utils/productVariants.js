@@ -3,6 +3,12 @@ const variantError = (message) => Object.assign(new Error(message), {
   code: 'INVALID_VARIANT_MATRIX'
 });
 
+const variantStatuses = new Set(['active', 'inactive', 'discontinued']);
+export const isValidProductImageUrl = (value) => value.startsWith('https://') ||
+  value.startsWith('http://') ||
+  value.startsWith('/uploads/') ||
+  value.startsWith('/images/');
+
 export function findProductVariant(product, size, colour) {
   if (!Array.isArray(product?.variants)) return null;
   return product.variants.find((variant) =>
@@ -10,6 +16,66 @@ export function findProductVariant(product, size, colour) {
     String(variant.colour || '').toLowerCase() === String(colour || '').toLowerCase()
   ) || null;
 }
+
+export function getVariantStatus(product, size, colour) {
+  const status = findProductVariant(product, size, colour)?.status;
+  return status == null ? 'active' : status;
+}
+
+export function getVariantAvailability(product, size, colour) {
+  const variants = Array.isArray(product?.variants) ? product.variants : [];
+  const variant = findProductVariant(product, size, colour);
+  if (variants.length && !variant) return 0;
+
+  const onHand = Number(variant ? variant.stock : product?.stock);
+  const reserved = Number(variant?.reservedQuantity ?? 0);
+  if (!Number.isSafeInteger(onHand) || onHand < 0 ||
+    !Number.isSafeInteger(reserved) || reserved < 0 || reserved > onHand) {
+    return 0;
+  }
+  return onHand - reserved;
+}
+
+export function getVariantPrice(product, size, colour) {
+  const variant = findProductVariant(product, size, colour);
+  const regularPricePaise = variant?.pricePaise ?? product?.pricePaise;
+  const pricePaise = variant?.discountPricePaise ??
+    variant?.pricePaise ??
+    product?.discountPricePaise ??
+    product?.pricePaise;
+  return { pricePaise, originalPricePaise: regularPricePaise };
+}
+
+const normalizeVariantBarcode = (barcode) => {
+  if (barcode === undefined || barcode === null || barcode === '') return undefined;
+  if (typeof barcode !== 'string') throw variantError('Each barcode must be text.');
+  const normalized = barcode.trim().toUpperCase();
+  if (!normalized) return undefined;
+  if (normalized.length > 128 || !/^[A-Z0-9][A-Z0-9._/-]{0,127}$/.test(normalized)) {
+    throw variantError('Each barcode must contain valid barcode characters.');
+  }
+  return normalized;
+};
+
+const normalizeVariantImages = (images) => {
+  if (images === undefined || images === null || images === '') return undefined;
+  const values = typeof images === 'string' ? images.split(/\r?\n|,/) : images;
+  if (!Array.isArray(values) || values.length > 30) {
+    throw variantError('Variant images must be a valid list.');
+  }
+  const normalized = values.map((value) => typeof value === 'string' ? value.trim() : '');
+  if (normalized.some((value) => !value || value.length > 2048 || !isValidProductImageUrl(value))) {
+    throw variantError('Each variant image must use a supported image URL.');
+  }
+  return normalized;
+};
+
+const normalizeOptionalPrice = (value, label) => {
+  if (value === undefined || value === null || value === '') return undefined;
+  const amount = Number(value);
+  if (!Number.isSafeInteger(amount) || amount < 0) throw variantError(`${label} must be a non-negative whole number of paise.`);
+  return amount;
+};
 
 export function validateVariantMatrix(sizes, colours, variants) {
   if (!Array.isArray(sizes) || !Array.isArray(colours) || !Array.isArray(variants)) {
@@ -38,6 +104,7 @@ export function validateVariantMatrix(sizes, colours, variants) {
   }
 
   const seenSkus = new Set();
+  const seenBarcodes = new Set();
   const seenCombinations = new Set();
 
   return variants.map((variant) => {
@@ -49,6 +116,10 @@ export function validateVariantMatrix(sizes, colours, variants) {
     if (!/^[A-Z0-9][A-Z0-9._-]{1,47}$/.test(sku)) throw variantError('Each variant needs a valid SKU.');
     if (seenSkus.has(sku)) throw variantError('Variant SKUs must be unique.');
     seenSkus.add(sku);
+
+    const barcode = normalizeVariantBarcode(variant.barcode);
+    if (barcode && seenBarcodes.has(barcode)) throw variantError('Variant barcodes must be unique.');
+    if (barcode) seenBarcodes.add(barcode);
 
     const combination = `${size.toLowerCase()}\u0000${colour.toLowerCase()}`;
     if (seenCombinations.has(combination)) throw variantError('Each size and colour combination must be unique.');
@@ -62,7 +133,31 @@ export function validateVariantMatrix(sizes, colours, variants) {
       throw variantError('Variant stock must be a non-negative whole number.');
     }
 
-    return { size, colour, sku, stock };
+    const pricePaise = normalizeOptionalPrice(variant.pricePaise, 'Variant price');
+    const discountPricePaise = normalizeOptionalPrice(variant.discountPricePaise, 'Variant sale price');
+    if (pricePaise !== undefined && discountPricePaise !== undefined && discountPricePaise > pricePaise) {
+      throw variantError('Variant sale price cannot exceed its regular price.');
+    }
+
+    const status = variant.status == null ? 'active' : String(variant.status).trim().toLowerCase();
+    if (!variantStatuses.has(status)) throw variantError('Variant status is invalid.');
+
+    let reorderTarget;
+    if (variant.reorderTarget !== undefined && variant.reorderTarget !== null && variant.reorderTarget !== '') {
+      reorderTarget = Number(variant.reorderTarget);
+      if (!Number.isSafeInteger(reorderTarget) || reorderTarget < 0) {
+        throw variantError('Reorder target must be a non-negative whole number.');
+      }
+    }
+
+    const images = normalizeVariantImages(variant.images);
+    const normalizedVariant = { size, colour, sku, stock, status };
+    if (barcode) normalizedVariant.barcode = barcode;
+    if (pricePaise !== undefined) normalizedVariant.pricePaise = pricePaise;
+    if (discountPricePaise !== undefined) normalizedVariant.discountPricePaise = discountPricePaise;
+    if (images !== undefined) normalizedVariant.images = images;
+    if (reorderTarget !== undefined) normalizedVariant.reorderTarget = reorderTarget;
+    return normalizedVariant;
   });
 }
 

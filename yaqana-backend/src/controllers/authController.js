@@ -4,6 +4,7 @@ import Session from '../models/Session.js';
 import { hashPassword, verifyPassword } from '../utils/password.js';
 import { issueToken } from '../utils/token.js';
 import { env } from '../config/env.js';
+import { setAdminReportingTimeZone } from '../utils/adminPreferences.js';
 import {
   clearCookieOptions,
   createCsrfCookieOptions,
@@ -13,13 +14,9 @@ import {
   SESSION_COOKIE_NAME
 } from '../utils/cookieAuth.js';
 import { asyncHandler, httpError } from '../utils/http.js';
+import { toPublicUser } from '../utils/publicUser.js';
 
-const publicUser = (user) => ({
-  _id: String(user._id), id: String(user._id), name: user.name, email: user.email,
-  phone: user.phone || '', role: user.role, status: user.status, createdAt: user.createdAt
-});
-
-async function createSession(user, res) {
+export async function createSession(user, res, { mfaVerified = false } = {}) {
   const issued = issueToken(user._id);
   const maxAgeMs = env.JWT_TTL_SECONDS * 1000;
   const csrfToken = env.AUTH_COOKIE_ENABLED ? randomBytes(32).toString('base64url') : null;
@@ -27,7 +24,8 @@ async function createSession(user, res) {
     user: user._id,
     jti: issued.jti,
     expiresAt: issued.expiresAt,
-    csrfTokenHash: csrfToken ? createCsrfTokenHash(csrfToken) : null
+    csrfTokenHash: csrfToken ? createCsrfTokenHash(csrfToken) : null,
+    mfaVerifiedAt: mfaVerified ? new Date() : null
   });
   if (env.AUTH_COOKIE_ENABLED) {
     res.cookie(SESSION_COOKIE_NAME, issued.token, createSessionCookieOptions({
@@ -38,9 +36,9 @@ async function createSession(user, res) {
       production: env.NODE_ENV === 'production',
       maxAgeMs
     }));
-    return { success: true, authMode: 'cookie', user: publicUser(user) };
+    return { success: true, authMode: 'cookie', user: { ...toPublicUser(user), adminMfaVerified: mfaVerified } };
   }
-  return { success: true, authMode: 'bearer', token: issued.token, user: publicUser(user) };
+  return { success: true, authMode: 'bearer', token: issued.token, user: { ...toPublicUser(user), adminMfaVerified: mfaVerified } };
 }
 
 export const register = asyncHandler(async (req, res) => {
@@ -63,13 +61,23 @@ export const login = asyncHandler(async (req, res) => {
   const user = await User.findOne({ email }).select('+passwordHash');
   if (!user || !(await verifyPassword(password, user.passwordHash))) throw httpError(401, 'Invalid email or password.', 'INVALID_CREDENTIALS');
   if (user.status !== 'active') throw httpError(403, 'This account is currently unavailable.', 'ACCOUNT_BLOCKED');
+  if (user.role !== 'customer') {
+    throw httpError(403, 'Administrator accounts must use the separate administrator sign-in.', 'ADMIN_SIGN_IN_REQUIRED');
+  }
   res.status(200).json(await createSession(user, res));
 });
 
-export const getProfile = asyncHandler(async (req, res) => res.json({ success: true, user: publicUser(req.user) }));
+export const getProfile = asyncHandler(async (req, res) => res.json({ success: true, user: {
+  ...toPublicUser(req.user),
+  adminMfaVerified: ['support_agent', 'admin', 'owner'].includes(req.user.role) && Boolean(req.session?.mfaVerifiedAt)
+} }));
 
 export const updateProfile = asyncHandler(async (req, res) => {
-  const { name, phone } = req.body || {};
+  const body = req.body || {};
+  const { name, phone } = body;
+  if (Object.hasOwn(body, 'reportingTimeZone')) {
+    setAdminReportingTimeZone(req.user, body.reportingTimeZone);
+  }
   if (name !== undefined) {
     const value = String(name).trim();
     if (value.length < 2 || value.length > 100) throw httpError(400, 'Name must be between 2 and 100 characters.');
@@ -81,7 +89,7 @@ export const updateProfile = asyncHandler(async (req, res) => {
     req.user.phone = value;
   }
   await req.user.save();
-  res.json({ success: true, message: 'Profile updated successfully.', user: publicUser(req.user) });
+  res.json({ success: true, message: 'Profile updated successfully.', user: toPublicUser(req.user) });
 });
 
 export const changePassword = asyncHandler(async (req, res) => {

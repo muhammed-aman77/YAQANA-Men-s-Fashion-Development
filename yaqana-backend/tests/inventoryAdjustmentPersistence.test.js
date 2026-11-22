@@ -76,7 +76,7 @@ test('a single inventory adjustment persists once on standalone MongoDB', {
   const admin = await User.findOne({ role: 'admin', status: 'active' }).select('_id');
   assert.ok(admin, 'the confirmed local database must contain an active admin');
 
-  const invokeAdjustment = async (adjustments, key) => {
+  const invokeAdjustment = async (adjustments, key, metadata = {}) => {
     const response = {
       statusCode: 200,
       body: null,
@@ -85,7 +85,7 @@ test('a single inventory adjustment persists once on standalone MongoDB', {
     };
     let forwardedError;
     await adjustInventory({
-      body: { adjustments, reason: 'integration test receipt' },
+      body: { adjustments, reason: 'integration test receipt', ...metadata },
       user: admin,
       get: (name) => name === 'Idempotency-Key' ? key : undefined
     }, response, (error) => { forwardedError = error; });
@@ -93,7 +93,12 @@ test('a single inventory adjustment persists once on standalone MongoDB', {
   };
 
   const adjustment = [{ productId: String(product._id), delta: 2 }];
-  const first = await invokeAdjustment(adjustment, idempotencyKey);
+  const adjustmentMetadata = {
+    type: 'restock',
+    reference: 'LOCAL-RECEIPT-1',
+    notes: 'Received during the local integration test.'
+  };
+  const first = await invokeAdjustment(adjustment, idempotencyKey, adjustmentMetadata);
   assert.ifError(first.error);
   const firstResponse = first.response;
   assert.equal(firstResponse.statusCode, 201);
@@ -102,13 +107,22 @@ test('a single inventory adjustment persists once on standalone MongoDB', {
   assert.ok(movement);
   assert.equal(movement.changes[0].stockBefore, 10);
   assert.equal(movement.changes[0].stockAfter, 12);
+  assert.equal(movement.type, 'restock');
+  assert.equal(movement.reference, 'LOCAL-RECEIPT-1');
+  assert.equal(movement.notes, 'Received during the local integration test.');
 
-  const retry = await invokeAdjustment(adjustment, idempotencyKey);
+  const retry = await invokeAdjustment(adjustment, idempotencyKey, adjustmentMetadata);
   assert.ifError(retry.error);
   const retryResponse = retry.response;
   assert.equal(retryResponse.statusCode, 200);
   assert.equal(await Product.findById(product._id).then((entry) => entry.stock), 12);
   assert.equal(await StockMovement.countDocuments({ idempotencyKey }), 1);
+  const changedMetadataRetry = await invokeAdjustment(adjustment, idempotencyKey, {
+    ...adjustmentMetadata,
+    reference: 'LOCAL-RECEIPT-2'
+  });
+  assert.equal(changedMetadataRetry.error?.statusCode, 409);
+  assert.equal(await Product.findById(product._id).then((entry) => entry.stock), 12);
 
   const concurrentAdjustment = [{ productId: String(secondProduct._id), delta: 2 }];
   const concurrentResults = await Promise.all([
